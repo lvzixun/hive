@@ -7,6 +7,6 @@
 struct hive_actor_context;
 
 typedef void (*hive_actor_cb)(
-    struct hive_actor_context* ctx, uint32_t source, int type, void* data, size_t sz);
+    uint32_t source, int type, int session, void* data, size_t sz);
 
 #endif

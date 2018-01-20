@@ -76,7 +76,7 @@ hive_mq_push(struct hive_message_queue* q, struct hive_message* msg) {
 }
 
 
-int
+size_t
 hive_mq_pop(struct hive_message_queue* q, struct hive_message* out_msg) {
     assert(out_msg);
     queue_block(q);
@@ -86,10 +86,11 @@ hive_mq_pop(struct hive_message_queue* q, struct hive_message* out_msg) {
 
     size_t head = q->head;
     *out_msg = q->buffer[head];
+    size_t cap = q->cap;
     q->cap--;
     q->head = queue_point(q, head+1);
     queue_unlock(q);
-    return q->cap;
+    return cap;
 }
 
 
