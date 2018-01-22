@@ -1,6 +1,6 @@
-CFLAGS:= -g -Wall -DDEBUG_MEMORY
+CFLAGS:= -g -Wall -DDEBUG_MEMORY -Isrc/
 
-SOURCE_C := hive.c hive_actor.c hive_memory.c hive_mq.c
+SOURCE_C := src/hive.c src/hive_actor.c src/hive_memory.c src/hive_mq.c
 SOURCE_O := $(SOURCE_C:.c=.o)
 
 
