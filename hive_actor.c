@@ -14,6 +14,7 @@ struct hive_actor_context {
 
     char* name;
     uint32_t handle;
+    void* ud;
     hive_actor_cb cb;
     bool is_progress;
     bool is_release;
@@ -49,7 +50,7 @@ struct {
 
 #define hande2hash(handle) ((handle)&(ACTORS.size-1))
 
-static struct hive_actor_context* _actor_new(char* name, uint32_t handle, hive_actor_cb cb);
+static struct hive_actor_context* _actor_new(char* name, uint32_t handle, hive_actor_cb cb, void* ud);
 static void _actor_free(struct hive_actor_context* actor);
 static struct hive_actor_context* _actor_query(uint32_t handle);
 static inline void _actor_send(struct hive_actor_context* actor, struct hive_message* msg);
@@ -145,7 +146,7 @@ _actor_exec(struct hive_actor_context* actor, struct hive_message* msg) {
     // execute message receive callback
     if(actor->cb) {
         actor->cb(msg->source, actor->handle, msg->type, 
-            msg->session, msg->data, msg->size);
+            msg->session, msg->data, msg->size, actor->ud);
     } else {
         ret = -1;
     }
@@ -192,7 +193,7 @@ hive_actor_dispatch() {
 
 
 uint32_t
-hive_actor_create(char* name, hive_actor_cb cb) {
+hive_actor_create(char* name, hive_actor_cb cb, void* ud) {
     actors_wlock();
     if(ACTOR_MGR.exit) {
         actors_wunlock();
@@ -205,7 +206,7 @@ hive_actor_create(char* name, hive_actor_cb cb) {
             uint32_t handle = i+ACTORS.handle_index;
             uint32_t hash = hande2hash(handle);
             if(ACTORS.list[hash] == NULL) {
-                struct hive_actor_context* actor = _actor_new(name, handle, cb);
+                struct hive_actor_context* actor = _actor_new(name, handle, cb, ud);
                 ACTORS.list[hash] = actor;
                 ACTORS.handle_index = handle+1;
                 struct hive_message msg = {
@@ -274,12 +275,20 @@ hive_actor_send(uint32_t source, uint32_t target, int type, int session, void* d
     if (src_actor == NULL || dst_actor == NULL) {
         ret = -1;
     } else {
+        unsigned char* new_data = NULL;
+        if(size == 0) {
+            new_data = NULL;
+        } else if (data != NULL) {
+            new_data = (unsigned char*)hive_malloc(size);
+            memcpy(new_data, data, size);
+        }
+
         struct hive_message msg = {
             .source = source,
             .type = type,
             .session = session,
             .size = size,
-            .data = (unsigned char*)data,
+            .data = new_data,
         };
        _actor_send(dst_actor, &msg);
     }
@@ -306,10 +315,11 @@ _actor_query(uint32_t handle) {
 
 
 static struct hive_actor_context*
-_actor_new(char* name, uint32_t handle, hive_actor_cb cb) {
+_actor_new(char* name, uint32_t handle, hive_actor_cb cb, void* ud) {
     struct hive_actor_context* actor = (struct hive_actor_context*)hive_malloc(sizeof(struct hive_actor_context));
     actor->q = hive_mq_new();
     actor->cb = cb;
+    actor->ud = ud;
     spinlock_init(&actor->lock);
 
     char* p = NULL;

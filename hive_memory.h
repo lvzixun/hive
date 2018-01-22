@@ -1,7 +1,6 @@
 #ifndef _HIVE_MEMORY_H_
 #define _HIVE_MEMORY_H_
 
-#define DEBUG_MEMORY
 
 #ifdef DEBUG_MEMORY
     #include <stddef.h>

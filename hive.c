@@ -111,10 +111,9 @@ hive_start() {
 }
 
 
-bool
-hive_register(char* name, hive_actor_cb cb) {
-    uint32_t handle = hive_actor_create(name, cb);
-    return handle == 0;
+uint32_t
+hive_register(char* name, hive_actor_cb cb, void* ud) {
+    return hive_actor_create(name, cb, ud);
 }
 
 bool
