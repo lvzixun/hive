@@ -9,6 +9,7 @@
 #include "hive.h"
 #include "hive_actor.h"
 #include "hive_memory.h"
+#include "actor_bootstrap.h"
 
 #define unused(v)  ((void)v)
 
@@ -134,7 +135,8 @@ main(int argc, char const *argv[]) {
     hive_init();
 
     // regisger bootstrap actor
-    // todo it!!
+    actor_bootstrap_setpath("src/hive_lua/bootstrap.lua");
+    hive_register("bootstrap", actor_bootstrap_dispatch, NULL);
 
     hive_start();
 

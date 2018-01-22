@@ -11,7 +11,7 @@ struct actor_state {
     lua_State* L;
     char* bootstrap_path;
     uint32_t handle;
-}ACOTR_BS;
+}ACTOR_BS;
 
 
 #define HIVE_LUA_STATE  "__hive_state__"
@@ -21,6 +21,8 @@ struct actor_state {
 #define HIVE_ACTOR_METHOD_DISPATCH "dispatch"
 
 static int hive_lib(lua_State* L);
+static void _register_lib(lua_State* L);
+
 
 static void
 reg_lua_lib(lua_State *L, lua_CFunction func, const char * libname) {
@@ -95,8 +97,7 @@ _lhive_register(lua_State* L) {
     lua_getfield(NL, -1, "traceback");
     lua_setfield(NL, LUA_REGISTRYINDEX, HIVE_LUA_TRACEBACK);
 
-    luaL_openlibs(NL);
-    hive_lib(NL);
+    _register_lib(NL);
     int ret = luaL_loadfile(NL, path);
     if(ret != LUA_OK) {
         _throw_error(L, NL, ret);
@@ -177,22 +178,26 @@ hive_lib(lua_State* L) {
     return 1;
 }
 
+static void
+_register_lib(lua_State* L) {
+    luaL_openlibs(L);
+    reg_lua_lib(L, hive_lib, "hive");
+}
 
 
 static void
 _bootstrap_start(uint32_t self) {
     lua_State* L = luaL_newstate();
-    luaL_openlibs(L);
-    ACOTR_BS.L = L;
-    ACOTR_BS.handle = self;
-    hive_lib(L);
+    ACTOR_BS.L = L;
+    ACTOR_BS.handle = self;
+    _register_lib(L);
 
     // register traceback
     lua_getglobal(L, "debug");
     lua_getfield(L, -1, "traceback");
     lua_setfield(L, LUA_REGISTRYINDEX, HIVE_LUA_TRACEBACK);
 
-    char* path = ACOTR_BS.bootstrap_path;
+    char* path = ACTOR_BS.bootstrap_path;
     assert(path);
     int ret = luaL_loadfile(L, path);
     if(ret != LUA_OK) {
@@ -221,23 +226,23 @@ BOOTSTRAP_ERROR:
 
 static void
 _bootstrap_exit(uint32_t self) {
-    lua_close(ACOTR_BS.L);
-    hive_free(ACOTR_BS.bootstrap_path);
+    lua_close(ACTOR_BS.L);
+    hive_free(ACTOR_BS.bootstrap_path);
 }
 
 
 void
-acotr_bootstrap_setpath(const char* path) {
+actor_bootstrap_setpath(const char* path) {
     assert(path);
     size_t sz = strlen(path);
     char* _path = (char*)hive_malloc(sz+1);
     strcpy(_path, path);
-    ACOTR_BS.bootstrap_path = _path;
+    ACTOR_BS.bootstrap_path = _path;
 }
 
 
 void
-acotr_bootstrap_dispatch(uint32_t source, uint32_t self, int type, int session, void* data, size_t sz) {
+actor_bootstrap_dispatch(uint32_t source, uint32_t self, int type, int session, void* data, size_t sz, void* ud) {
     switch(type) {
         case HIVE_TCREATE:
             _bootstrap_start(self);
@@ -246,7 +251,7 @@ acotr_bootstrap_dispatch(uint32_t source, uint32_t self, int type, int session, 
             _bootstrap_exit(self);
             break;
         default:
-            _lua_actor_dispatch(source, self, type, session, data, sz, &ACOTR_BS);
+            _lua_actor_dispatch(source, self, type, session, data, sz, &ACTOR_BS);
             break;
     }
 }
