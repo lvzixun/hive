@@ -135,7 +135,7 @@ main(int argc, char const *argv[]) {
     hive_init();
 
     // regisger bootstrap actor
-    actor_bootstrap_setpath("src/hive_lua/bootstrap.lua");
+    actor_bootstrap_setpath("hive_lua/bootstrap.lua");
     hive_register("bootstrap", actor_bootstrap_dispatch, NULL);
 
     hive_start();
