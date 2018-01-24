@@ -22,7 +22,7 @@ struct hive_env {
 
 void
 hive_init() {
-    ENV.thread = 4;
+    ENV.thread = 2;
     ENV.staring = false;
     ENV.exit = false;
     hive_actor_init();

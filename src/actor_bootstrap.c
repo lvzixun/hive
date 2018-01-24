@@ -24,6 +24,22 @@ static int hive_lib(lua_State* L);
 static void _register_lib(lua_State* L);
 
 
+static int
+traceback(lua_State* L) {
+    const char *msg = lua_tostring(L, 1);
+    if (msg == NULL) {  /* is error object not a string? */
+        if (luaL_callmeta(L, 1, "__tostring") &&    /* does it have a metamethod */
+            lua_type(L, -1) == LUA_TSTRING) {/* that produces a string? */
+            return 1;   /* that is the message */
+        } else {
+            msg = lua_pushfstring(L, "(error object is a %s value)", luaL_typename(L, 1));
+        }
+    }
+    luaL_traceback(L, L, msg, 1);   /* append a standard traceback */
+    return 1;   /* return the traceback */
+}
+
+
 static void
 reg_lua_lib(lua_State *L, lua_CFunction func, const char * libname) {
     luaL_requiref(L, libname, func, 0);
@@ -88,16 +104,9 @@ _lhive_register(lua_State* L) {
     struct actor_state* state = (struct actor_state*)lua_newuserdata(NL, sizeof(struct actor_state));
     state->L = NL;
     state->handle = 0;
-
-    // register actor state
-    lua_setfield(NL, LUA_REGISTRYINDEX, HIVE_LUA_STATE); 
-
-    // register traceback
-    lua_getglobal(NL, "debug");
-    lua_getfield(NL, -1, "traceback");
-    lua_setfield(NL, LUA_REGISTRYINDEX, HIVE_LUA_TRACEBACK);
-
+    lua_setfield(NL, LUA_REGISTRYINDEX, HIVE_LUA_STATE);
     _register_lib(NL);
+
     int ret = luaL_loadfile(NL, path);
     if(ret != LUA_OK) {
         _throw_error(L, NL, ret);
@@ -140,14 +149,14 @@ _lhive_unregister(lua_State* L) {
 static int
 _lhive_send(lua_State* L) {
     uint32_t target = lua_tointeger(L, 1);
-    int type = lua_tointeger(L, 2);
-    int session = luaL_optinteger(L, 3, 0);
+    int session = luaL_optinteger(L, 2, 0);
     size_t sz = 0;
-    const char* data = luaL_optlstring(L, 4, NULL, &sz);
+    const char* data = luaL_optlstring(L, 3, NULL, &sz);
 
     lua_getfield(L, LUA_REGISTRYINDEX, HIVE_LUA_STATE);
     struct actor_state* state = (struct actor_state*)lua_touserdata(L, -1);
-    bool b = hive_send(state->handle, target, type, session, (void*)data, sz);
+    assert(state);
+    bool b = hive_send(state->handle, target,  HIVE_TNORMAL, session, (void*)data, sz);
     lua_pushboolean(L, b);
     return 1;
 }
@@ -180,7 +189,14 @@ hive_lib(lua_State* L) {
 
 static void
 _register_lib(lua_State* L) {
+    // register traceback
+    lua_pushcfunction(L, traceback);
+    lua_setfield(L, LUA_REGISTRYINDEX, HIVE_LUA_TRACEBACK);
+
+    // open base lib
     luaL_openlibs(L);
+
+    // register hive lib
     reg_lua_lib(L, hive_lib, "hive");
 }
 
@@ -190,12 +206,9 @@ _bootstrap_start(uint32_t self) {
     lua_State* L = luaL_newstate();
     ACTOR_BS.L = L;
     ACTOR_BS.handle = self;
+    lua_pushlightuserdata(L, (void*)&ACTOR_BS);
+    lua_setfield(L, LUA_REGISTRYINDEX, HIVE_LUA_STATE);
     _register_lib(L);
-
-    // register traceback
-    lua_getglobal(L, "debug");
-    lua_getfield(L, -1, "traceback");
-    lua_setfield(L, LUA_REGISTRYINDEX, HIVE_LUA_TRACEBACK);
 
     char* path = ACTOR_BS.bootstrap_path;
     assert(path);
@@ -216,6 +229,7 @@ _bootstrap_start(uint32_t self) {
             lua_setfield(L, LUA_REGISTRYINDEX, HIVE_LUA_MODULE);
         }
     }
+    return;
 
 BOOTSTRAP_ERROR:
     fprintf(stderr, "hive start bootstrap error: [%d] %s\n", ret, lua_tostring(L, -1));

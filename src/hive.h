@@ -11,6 +11,7 @@
 #define HIVE_TRELEASE 1
 #define HIVE_TTIMER 2
 #define HIVE_TSOCKET 3
+#define HIVE_TNORMAL 4
 
 
 void hive_init();

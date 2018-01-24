@@ -29,8 +29,8 @@ struct hive_actor_context {
 struct {
     struct hive_actor_context* progress[MAX_PROGRESS_ACTOR_COUNT];
     bool flags[MAX_PROGRESS_ACTOR_COUNT];
-    size_t head;
-    size_t tail;
+    uint32_t head;
+    uint32_t tail;
     bool exit;
 
     struct {
@@ -59,6 +59,7 @@ static void
 _actor_progress_push(struct hive_actor_context* actor) {
     spinlock_lock(&actor->lock);
     if(actor->is_progress) {
+        spinlock_unlock(&actor->lock);
         return;
     }
     actor->is_progress = true;
@@ -76,7 +77,7 @@ _actor_progress_push(struct hive_actor_context* actor) {
 static struct hive_actor_context*
 _actor_progress_pop() {
     uint32_t old_head = ACTOR_MGR.head;
-    uint32_t head = GP(ACTOR_MGR.head);
+    uint32_t head = GP(old_head);
     if(GP(ACTOR_MGR.tail) == head) {
         return NULL;
     }
@@ -165,6 +166,12 @@ hive_actor_dispatch() {
         return 0;
     }
 
+    struct hive_message msg;
+    size_t cap = hive_mq_pop(actor->q, &msg);
+    if (cap>0) {
+        _actor_exec(actor, &msg);
+    }
+
     // release actor
     if(actor->is_release) {
         struct hive_message msg = {
@@ -177,18 +184,12 @@ hive_actor_dispatch() {
         _actor_exec(actor, &msg);
         _actor_free(actor);
         return 2;
-    } else {
-        struct hive_message msg;
-        size_t cap = hive_mq_pop(actor->q, &msg);
-        if (cap==0) {
-            return 0;
-        }
-        _actor_exec(actor, &msg);
-        if(cap>1) {
-            _actor_progress_push(actor);
-        }
+    } else if(cap > 1) {
+
+        _actor_progress_push(actor);
         return 1;
     }
+    return 0;
 }
 
 
@@ -205,6 +206,7 @@ hive_actor_create(char* name, hive_actor_cb cb, void* ud) {
         for(i=0; i<ACTORS.size; i++) {
             uint32_t handle = i+ACTORS.handle_index;
             uint32_t hash = hande2hash(handle);
+            assert(hash>=0 && hash<ACTORS.size);
             if(ACTORS.list[hash] == NULL) {
                 struct hive_actor_context* actor = _actor_new(name, handle, cb, ud);
                 ACTORS.list[hash] = actor;
@@ -225,10 +227,12 @@ hive_actor_create(char* name, hive_actor_cb cb, void* ud) {
 
         // need expand actors list
         assert(ACTORS.size*2 < 0x8000000);
+        size_t old_sz = ACTORS.size;
         size_t sz = sizeof(struct hive_actor_context*)*ACTORS.size*2;
         struct hive_actor_context** new_list = (struct hive_actor_context**)hive_malloc(sz);
         memset(new_list, 0, sz);
-        for(i=0; i<ACTORS.size; i++) {
+        ACTORS.size *= 2;
+        for(i=0; i<old_sz; i++) {
             struct hive_actor_context* v = ACTORS.list[i];
             uint32_t handle = v->handle;
             uint32_t hash = hande2hash(handle);
@@ -237,7 +241,6 @@ hive_actor_create(char* name, hive_actor_cb cb, void* ud) {
         }
 
         hive_free(ACTORS.list);
-        ACTORS.size *= 2;
         ACTORS.list = new_list;
     }
 }
@@ -320,6 +323,9 @@ _actor_new(char* name, uint32_t handle, hive_actor_cb cb, void* ud) {
     actor->q = hive_mq_new();
     actor->cb = cb;
     actor->ud = ud;
+    actor->handle = handle;
+    actor->is_release = false;
+    actor->is_progress = false;
     spinlock_init(&actor->lock);
 
     char* p = NULL;
