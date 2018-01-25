@@ -71,6 +71,7 @@ _lua_actor_dispatch(uint32_t source, uint32_t self, int type, int session, void*
     lua_getfield(L, -1, HIVE_ACTOR_METHOD_DISPATCH);
 
     lua_pushinteger(L, source);
+    lua_pushinteger(L, self);
     lua_pushinteger(L, type);
     lua_pushinteger(L, session);
     if (data == NULL || sz == 0) {
@@ -79,7 +80,7 @@ _lua_actor_dispatch(uint32_t source, uint32_t self, int type, int session, void*
         lua_pushlstring(L, (const char*)data, sz);
     }
 
-    int ret = lua_pcall(L, 4, 0, top+1);
+    int ret = lua_pcall(L, 5, 0, top+1);
     if(ret != LUA_OK) {
         fprintf(stderr, "hive actor dispatch error:[%d] %s\n", ret, lua_tostring(L, -1));
     }
@@ -138,6 +139,12 @@ _lhive_register(lua_State* L) {
 
 
 static int
+_lhive_exit(lua_State* L) {
+    hive_exit();
+    return 0;
+}
+
+static int
 _lhive_unregister(lua_State* L) {
     uint32_t handle = lua_tointeger(L, 1);
     bool b = hive_unregister(handle);
@@ -175,6 +182,7 @@ hive_lib(lua_State* L) {
     luaL_Reg l[] = {
         {"hive_register", _lhive_register}, 
         {"hive_unregister", _lhive_unregister},
+        {"hive_exit", _lhive_exit},
         {"hive_send", _lhive_send},
         {NULL, NULL},
     };
@@ -184,6 +192,7 @@ hive_lib(lua_State* L) {
     _set_const(L, "HIVE_TRELEASE", HIVE_TRELEASE);
     _set_const(L, "HIVE_TTIMER", HIVE_TTIMER);
     _set_const(L, "HIVE_TSOCKET", HIVE_TSOCKET);
+    _set_const(L, "HIVE_TNORMAL", HIVE_TNORMAL);
     return 1;
 }
 

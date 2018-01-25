@@ -1,10 +1,17 @@
 local hive = require "hive"
+local sf = string.format
 local M = {}
 
 
-print("register echo!")
-function M.dispatch(source, type, session, data)
-    print("echo dispatch", source, type, session, data)
+local sum_actor = 2
+print("hello echo!")
+function M.dispatch(source, handle, type, session, data)
+    if type == hive.HIVE_TNORMAL then
+        local s = sf("######## echo from:%s self:%s type:%s session:%s data:%s", 
+            source, handle, type, session, data)
+        print(s)
+        hive.hive_send(sum_actor, nil, data)
+    end
 end
 
 

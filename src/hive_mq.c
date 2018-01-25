@@ -75,12 +75,17 @@ hive_mq_push(struct hive_message_queue* q, struct hive_message* msg) {
     queue_unlock(q);
 }
 
+size_t
+hive_mq_cap(struct hive_message_queue* q) {
+    return q->cap;
+}
 
 size_t
 hive_mq_pop(struct hive_message_queue* q, struct hive_message* out_msg) {
     assert(out_msg);
     queue_block(q);
     if(q->cap == 0) {
+        queue_unlock(q);
         return 0;
     }
 

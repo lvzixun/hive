@@ -16,6 +16,7 @@ struct hive_message_queue;
 
 struct hive_message_queue* hive_mq_new();
 void hive_mq_free(struct hive_message_queue* q);
+size_t hive_mq_cap(struct hive_message_queue* q);
 void hive_mq_push(struct hive_message_queue* q, struct hive_message* msg);
 size_t hive_mq_pop(struct hive_message_queue* q, struct hive_message* out_msg);
 

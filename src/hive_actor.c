@@ -54,6 +54,7 @@ static struct hive_actor_context* _actor_new(char* name, uint32_t handle, hive_a
 static void _actor_free(struct hive_actor_context* actor);
 static struct hive_actor_context* _actor_query(uint32_t handle);
 static inline void _actor_send(struct hive_actor_context* actor, struct hive_message* msg);
+static inline void _actor_release(struct hive_actor_context* actor);
 
 static void
 _actor_progress_push(struct hive_actor_context* actor) {
@@ -92,11 +93,16 @@ _actor_progress_pop() {
         return NULL;
     }
 
-    actor->is_progress = false;
     ACTOR_MGR.flags[head] = false;
     return actor;
 }
 
+
+static inline void
+_actor_release(struct hive_actor_context* actor) {
+    actor->is_release = true; // mark actor is release
+    _actor_progress_push(actor); // push actor to progress queue
+}
 
 void
 hive_actor_init() {
@@ -121,14 +127,7 @@ hive_actor_exit() {
     for(i=0; i<ACTORS.size; i++) {
         struct hive_actor_context* actor = ACTORS.list[i];
         if(actor) {
-            struct hive_message msg = {
-                .source = SYS_HANDLE,
-                .session = 0,
-                .type = HIVE_TRELEASE,
-                .data = NULL,
-                .size = 0,
-            };
-            _actor_send(actor, &msg);
+            _actor_release(actor);
         }
     }
     actors_wunlock();
@@ -182,14 +181,16 @@ hive_actor_dispatch() {
             .size = 0,
         };
         _actor_exec(actor, &msg);
+        assert(actor->is_progress);
         _actor_free(actor);
         return 2;
-    } else if(cap > 1) {
+    } 
 
+    actor->is_progress = false;
+    if(hive_mq_cap(actor->q) > 0) {
         _actor_progress_push(actor);
-        return 1;
     }
-    return 0;
+    return 1;
 }
 
 
@@ -255,8 +256,7 @@ hive_actor_release(uint32_t handle) {
     if (!actor) {
         ret = -1; // invalid actor handle
     } else {
-        actor->is_release = true; // mark actor is release
-        _actor_progress_push(actor);
+        _actor_release(actor);
     }
     actors_runlock();
     return ret;    
