@@ -188,7 +188,7 @@ hive_lib(lua_State* L) {
     };
     luaL_newlib(L, l);
     _set_const(L, "HIVE_SYS_HANDLE", SYS_HANDLE);
-    _set_const(L, "HIVE_TCREATE", SYS_HANDLE);
+    _set_const(L, "HIVE_TCREATE", HIVE_TCREATE);
     _set_const(L, "HIVE_TRELEASE", HIVE_TRELEASE);
     _set_const(L, "HIVE_TTIMER", HIVE_TTIMER);
     _set_const(L, "HIVE_TSOCKET", HIVE_TSOCKET);
