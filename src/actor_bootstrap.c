@@ -254,8 +254,8 @@ _bootstrap_exit(uint32_t self) {
 }
 
 
-void
-actor_bootstrap_setpath(const char* path) {
+static void
+_bootstrap_setpath(const char* path) {
     assert(path);
     size_t sz = strlen(path);
     char* _path = (char*)hive_malloc(sz+1);
@@ -264,8 +264,8 @@ actor_bootstrap_setpath(const char* path) {
 }
 
 
-void
-actor_bootstrap_dispatch(uint32_t source, uint32_t self, int type, int session, void* data, size_t sz, void* ud) {
+static void
+_bootstrap_dispatch(uint32_t source, uint32_t self, int type, int session, void* data, size_t sz, void* ud) {
     switch(type) {
         case HIVE_TCREATE:
             _bootstrap_start(self);
@@ -279,3 +279,8 @@ actor_bootstrap_dispatch(uint32_t source, uint32_t self, int type, int session, 
     }
 }
 
+void
+actor_bootstrap_init() {
+    _bootstrap_setpath("hive_lua/bootstrap.lua");
+    hive_register("bootstrap", _bootstrap_dispatch, NULL);
+}
