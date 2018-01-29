@@ -1,5 +1,5 @@
-#ifndef socket_poll_h
-#define socket_poll_h
+#ifndef _SOCKET_POLL_H_
+#define _SOCKET_POLL_H_
 
 #include <stdbool.h>
 
