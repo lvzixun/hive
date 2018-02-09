@@ -1,5 +1,6 @@
 #include "hive.h"
 #include "hive_memory.h"
+#include "hive_log.h"
 #include <string.h>
 #include <lua.h>
 #include <lauxlib.h>
@@ -19,6 +20,7 @@ struct actor_state {
 #define HIVE_LUA_TRACEBACK "__hive_debug_traceback__"
 
 #define HIVE_ACTOR_METHOD_DISPATCH "dispatch"
+#define bs_log(...) hive_elog("hive actor_bootstrap", __VA_ARGS__)
 
 static int hive_lib(lua_State* L);
 static void _register_lib(lua_State* L);
@@ -82,7 +84,7 @@ _lua_actor_dispatch(uint32_t source, uint32_t self, int type, int session, void*
 
     int ret = lua_pcall(L, 5, 0, top+1);
     if(ret != LUA_OK) {
-        fprintf(stderr, "hive actor dispatch error:[%d] %s\n", ret, lua_tostring(L, -1));
+        bs_log("hive actor dispatch error:[%d] %s\n", ret, lua_tostring(L, -1));
     }
     lua_settop(L, top);
 
@@ -241,7 +243,7 @@ _bootstrap_start(uint32_t self) {
     return;
 
 BOOTSTRAP_ERROR:
-    fprintf(stderr, "hive start bootstrap error: [%d] %s\n", ret, lua_tostring(L, -1));
+    bs_log("hive start bootstrap error: [%d] %s\n", ret, lua_tostring(L, -1));
     hive_unregister(self);
 }
 

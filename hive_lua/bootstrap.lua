@@ -10,7 +10,7 @@ function M.dispatch(source, type, session, data)
 end
 
 
-local function main()
+local function main2()
     local echo_actor_list = {}
     local sum_actor = hive.hive_register("hive_lua/sum.lua", "sum")
     
@@ -30,6 +30,9 @@ local function main()
 end
 
 
+local function main()
+    hive.hive_exit()
+end
 
 -- print("hive_unregister", hive.hive_unregister(echo_handle))
 main()

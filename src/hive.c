@@ -10,6 +10,8 @@
 #include "hive_actor.h"
 #include "hive_memory.h"
 #include "actor_bootstrap.h"
+#include "hive_log.h"
+#include "socket_mgr.h"
 
 #define unused(v)  ((void)v)
 
@@ -17,15 +19,18 @@ struct hive_env {
     int thread;
     bool staring;
     bool exit;
+    struct socket_mgr_state* sm_state;
 }ENV;
 
 
 void
 hive_init() {
+    hive_actor_init();
     ENV.thread = 4;
     ENV.staring = false;
     ENV.exit = false;
-    hive_actor_init();
+    ENV.sm_state = socket_mgr_create();
+    assert(ENV.sm_state);
 }
 
 
@@ -36,7 +41,7 @@ hive_exit() {
     // todo it!
 
     // notify socket thread exit
-    // todo it
+    socket_mgr_exit(ENV.sm_state);
 
     // send exit message to all actors
     hive_actor_exit();
@@ -46,8 +51,12 @@ hive_exit() {
 static void*
 _thread_socket(void* p) {
     unused(p);
-    usleep(2000);
-    // todo it!
+    for(;;) {
+        int ret = socket_mgr_update(ENV.sm_state);
+        if(ret < 0) {
+            break;
+        }
+    }
     return NULL;
 }
 
@@ -67,7 +76,7 @@ _thread_worker(void* p) {
     for(;;) {
         int ret = hive_actor_dispatch();
         unused(ret);
-        usleep(1500);
+        usleep(100);
 
         if(ENV.exit && ret == 0) {
             break;
@@ -79,8 +88,7 @@ _thread_worker(void* p) {
 static void
 _create_thread(pthread_t* thread, void*(*progress)(void*), void* arg) {
     if(pthread_create(thread, NULL, progress, arg)) {
-        fprintf(stderr, "create thread failed");
-        exit(1);
+        hive_panic("create thread failed");
     }
 }
 
@@ -89,7 +97,7 @@ hive_start() {
     pthread_t pid[ENV.thread+2];
     int len = sizeof(pid)/sizeof(pid[0]);
     if(ENV.staring) {
-        fprintf(stderr, "hive is running");
+        hive_printf("hive is running");
         return 1;
     }
 
@@ -105,6 +113,8 @@ hive_start() {
         pthread_join(pid[i], NULL);
     }
 
+    // free socker manger
+    socket_mgr_release(ENV.sm_state);
 
     // free actors chain
     hive_actor_free();
