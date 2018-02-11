@@ -138,7 +138,6 @@ hive_unregister(uint32_t handle) {
 bool
 hive_send(uint32_t source, uint32_t target, int type, int session, void* data, size_t size) {
     int ret = hive_actor_send(source, target, type, session, data, size);
-    printf("hive_send!!!! %d\n", ret);
     return ret == 0;
 }
 

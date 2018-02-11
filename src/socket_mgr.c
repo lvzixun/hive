@@ -803,13 +803,12 @@ socket_mgr_update(struct socket_mgr_state* state) {
         hive_panic("socket_mgr update sp_wait error:%d\n", n);
     }
 
-    printf("socket_mgr_update!!!! n=%d\n", n);
     bool has_request = false;
     int i;
     for(i=0; i<n; i++) {
         struct event* e = &(state->sp_event[i]);
         struct socket* s = (struct socket*)e->s;
-        printf("[%d] event:%p s:%p read:%d write:%d\n", i, e, s, e->read, e->write);
+        // printf("[%d] count:%d event:%p s:%p read:%d write:%d\n", i, n, e, s, e->read, e->write);
         // marke control request
         if(s == NULL) {
             if(e->error) {
@@ -823,7 +822,6 @@ socket_mgr_update(struct socket_mgr_state* state) {
 
         // socket event
         enum socket_type stype = s->type;
-        printf("stype: %d\n", stype);
         if(e->write) {
             switch(stype) {
                 case ST_CONNECTING: {

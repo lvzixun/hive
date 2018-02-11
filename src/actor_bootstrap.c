@@ -282,6 +282,10 @@ hive_lib(lua_State* L) {
     _set_const(L, "HIVE_TTIMER", HIVE_TTIMER);
     _set_const(L, "HIVE_TSOCKET", HIVE_TSOCKET);
     _set_const(L, "HIVE_TNORMAL", HIVE_TNORMAL);
+    _set_const(L, "SE_BREAK", SE_BREAK);
+    _set_const(L, "SE_ACCEPT", SE_ACCEPT);
+    _set_const(L, "SE_RECIVE", SE_RECIVE);
+    _set_const(L, "SE_ERROR", SE_ERROR);
     return 1;
 }
 

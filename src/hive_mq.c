@@ -15,7 +15,7 @@ struct hive_message_queue {
     struct hive_message* buffer;
 };
 
-#define MESSAGE_QUEUE_DEFAULT_SIZE 1024
+#define MESSAGE_QUEUE_DEFAULT_SIZE 256
 #define queue_block(q)  spinlock_lock(&q->lock)
 #define queue_unlock(q) spinlock_unlock(&q->lock)
 
@@ -46,7 +46,7 @@ hive_mq_free(struct hive_message_queue* q) {
 static void
 expand_queue(struct hive_message_queue* q) {
     size_t sz = q->size*2;
-    struct hive_message* new_buffer = (struct hive_message*)hive_malloc(sz);
+    struct hive_message* new_buffer = (struct hive_message*)hive_malloc(sizeof(struct hive_message)*sz);
     size_t i = 0;
     for(i=0; i<q->cap; i++) {
         size_t idx = queue_point(q, q->head+i);
