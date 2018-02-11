@@ -521,7 +521,7 @@ socket_mgr_send(struct socket_mgr_state* state, int id, const void* data, size_t
             if(n < 0) {
                 n = 0;
             }else if(n < size) {
-                n = n - size;
+                n = size - n;
             }else if (n == size) {
                 spinlock_unlock(&s->lock);
                 return 0;
@@ -530,7 +530,7 @@ socket_mgr_send(struct socket_mgr_state* state, int id, const void* data, size_t
         spinlock_unlock(&s->lock);
     }
 
-    assert(n>=0 && (size_t)n<size);
+    assert(n>=0 && ((size_t)n)<size);
     struct buffer_block* block = _buffer_new_block( (void*)((uint8_t*)data+n), size - (size_t)n);
     _request_msgsend(state, id, block);
     return 0;
@@ -549,6 +549,7 @@ _socket_do_send(struct socket_mgr_state* state, struct socket* s) {
         void* data = p->buffer + offset;
         size_t sz = p->sz - offset;
         int n = write(fd, data, sz);
+        // printf("socket write data:%p size:%zd n:%d\n", data, sz, n);
         if(n<0) {
             break;
         }else if(n<sz) {
