@@ -1,4 +1,6 @@
 #include "hive.h"
+#include "hive_socket.h"
+
 #include "hive_memory.h"
 #include "hive_log.h"
 #include <string.h>
@@ -49,6 +51,24 @@ reg_lua_lib(lua_State *L, lua_CFunction func, const char * libname) {
 }
 
 
+static struct actor_state*
+_self_state(lua_State* L) {
+    lua_getfield(L, LUA_REGISTRYINDEX, HIVE_LUA_STATE);
+    struct actor_state* state = (struct actor_state*)lua_touserdata(L, -1);
+    lua_pop(L, 1);
+    return state;
+}
+
+static uint32_t
+_check_handle(lua_State* L, int arg) {
+    lua_Integer handle = luaL_checkinteger(L, arg);
+    if(handle < 0 || handle > 0xffffffff) {
+        luaL_error(L, "error actor handle id:%d", handle);
+    }
+    return (uint32_t)handle;
+}
+
+
 static void
 _throw_error(lua_State* L, lua_State* NL, int ret) {
     const char* err = lua_tostring(NL, -1);
@@ -66,7 +86,9 @@ static void
 _lua_actor_dispatch(uint32_t source, uint32_t self, int type, int session, void* data, size_t sz, void* ud) {
     struct actor_state* state = (struct actor_state*)ud;
     lua_State* L = state->L;
-    state->handle = self;
+    assert(state->handle == self);
+
+    int n = 5;
     int top = lua_gettop(L);
     lua_getfield(L, LUA_REGISTRYINDEX, HIVE_LUA_TRACEBACK);
     lua_getfield(L, LUA_REGISTRYINDEX, HIVE_LUA_MODULE);
@@ -79,10 +101,36 @@ _lua_actor_dispatch(uint32_t source, uint32_t self, int type, int session, void*
     if (data == NULL || sz == 0) {
         lua_pushnil(L);
     }else {
-        lua_pushlstring(L, (const char*)data, sz);
+        if(type == HIVE_TSOCKET) {
+            struct socket_data* sdata = (struct socket_data*)data;
+            enum socket_event se = sdata->se;
+            lua_pushinteger(L, se);
+            switch(se) {
+                case SE_BREAK:
+                    break;
+
+                case SE_ACCEPT:{
+                    int client_id = sdata->u.id;
+                    lua_pushinteger(L, client_id);
+                    n++;
+                    break;
+                }
+
+                case SE_RECIVE:
+                case SE_ERROR:
+                    lua_pushlstring(L, (const char*)sdata->data, sdata->u.size);
+                    n++;
+                    break;
+
+                default:
+                    hive_panic("invalid socket event:%d", se);
+            }
+        }else {
+            lua_pushlstring(L, (const char*)data, sz);
+        }
     }
 
-    int ret = lua_pcall(L, 5, 0, top+1);
+    int ret = lua_pcall(L, n, 0, top+1);
     if(ret != LUA_OK) {
         bs_log("hive actor dispatch error:[%d] %s\n", ret, lua_tostring(L, -1));
     }
@@ -134,6 +182,7 @@ _lhive_register(lua_State* L) {
         lua_pushstring(L, "hive register error");
         _throw_error(L, NL, -1);
     } else {
+        state->handle = handle;
         lua_pushinteger(L, handle);
     }
     return 1;
@@ -146,9 +195,10 @@ _lhive_exit(lua_State* L) {
     return 0;
 }
 
+
 static int
 _lhive_unregister(lua_State* L) {
-    uint32_t handle = lua_tointeger(L, 1);
+    uint32_t handle = _check_handle(L, 1);
     bool b = hive_unregister(handle);
     lua_pushboolean(L, b);
     return 1;
@@ -157,14 +207,12 @@ _lhive_unregister(lua_State* L) {
 
 static int
 _lhive_send(lua_State* L) {
-    uint32_t target = lua_tointeger(L, 1);
+    uint32_t target = _check_handle(L, 1);
     int session = luaL_optinteger(L, 2, 0);
     size_t sz = 0;
     const char* data = luaL_optlstring(L, 3, NULL, &sz);
 
-    lua_getfield(L, LUA_REGISTRYINDEX, HIVE_LUA_STATE);
-    struct actor_state* state = (struct actor_state*)lua_touserdata(L, -1);
-    assert(state);
+    struct actor_state* state = _self_state(L);
     bool b = hive_send(state->handle, target,  HIVE_TNORMAL, session, (void*)data, sz);
     lua_pushboolean(L, b);
     return 1;
@@ -180,12 +228,51 @@ _set_const(lua_State* L, const char* fieldname, int v) {
 
 
 static int
+_lhive_socket_connect(lua_State* L) {
+    const char* host = luaL_checkstring(L, 1);
+    uint16_t port = (uint16_t)luaL_checkinteger(L, 2);
+    struct actor_state* state = _self_state(L);
+    int id = hive_socket_connect(host, port, state->handle);
+    lua_pushinteger(L, id);
+    return 1;
+}
+
+
+
+static int
+_lhive_socket_listen(lua_State* L) {
+    const char* host = luaL_checkstring(L, 1);
+    uint16_t port = (uint16_t)luaL_checkinteger(L, 2);
+    struct actor_state* state = _self_state(L);
+    int id = hive_socket_listen(host, port, state->handle);
+    lua_pushinteger(L, id);
+    return 1;
+}
+
+
+static int
+_lhive_socket_send(lua_State* L) {
+    int id = luaL_checkinteger(L, 1);
+    size_t size;
+    const char* s = luaL_checklstring(L, 2, &size);
+    int ret = hive_socket_send(id, (const void*)s, size);
+    lua_pushinteger(L, ret);
+    return 1;
+}
+
+
+
+static int
 hive_lib(lua_State* L) {
     luaL_Reg l[] = {
         {"hive_register", _lhive_register}, 
         {"hive_unregister", _lhive_unregister},
         {"hive_exit", _lhive_exit},
         {"hive_send", _lhive_send},
+
+        {"hive_socket_connect", _lhive_socket_connect},
+        {"hive_socket_listen", _lhive_socket_listen},
+        {"hive_socket_send", _lhive_socket_send},
         {NULL, NULL},
     };
     luaL_newlib(L, l);
@@ -209,6 +296,8 @@ _register_lib(lua_State* L) {
 
     // register hive lib
     reg_lua_lib(L, hive_lib, "hive");
+
+    // register socket lib
 }
 
 

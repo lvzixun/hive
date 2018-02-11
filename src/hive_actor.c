@@ -273,9 +273,8 @@ int
 hive_actor_send(uint32_t source, uint32_t target, int type, int session, void* data, size_t size) {
     int ret = 0;
     actors_rlock();
-    struct hive_actor_context* src_actor = _actor_query(source);
     struct hive_actor_context* dst_actor = _actor_query(target);
-    if (src_actor == NULL || dst_actor == NULL) {
+    if (dst_actor == NULL) {
         ret = -1;
     } else {
         unsigned char* new_data = NULL;

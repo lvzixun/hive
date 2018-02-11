@@ -29,9 +29,9 @@ local function main2()
     -- hive.hive_exit()
 end
 
-
 local function main()
-    hive.hive_exit()
+    local network_actor = hive.hive_register("hive_lua/network.lua", "network")
+    print("network_actor!!!!", network_actor)
 end
 
 -- print("hive_unregister", hive.hive_unregister(echo_handle))

@@ -15,7 +15,7 @@
 
 #define unused(v)  ((void)v)
 
-struct hive_env {
+static struct hive_env {
     int thread;
     bool staring;
     bool exit;
@@ -122,6 +122,8 @@ hive_start() {
 }
 
 
+// ---------------- hive actor api ----------------  
+
 uint32_t
 hive_register(char* name, hive_actor_cb cb, void* ud) {
     return hive_actor_create(name, cb, ud);
@@ -136,8 +138,33 @@ hive_unregister(uint32_t handle) {
 bool
 hive_send(uint32_t source, uint32_t target, int type, int session, void* data, size_t size) {
     int ret = hive_actor_send(source, target, type, session, data, size);
+    printf("hive_send!!!! %d\n", ret);
     return ret == 0;
 }
+
+
+// ---------------- hive socket api ----------------  
+int 
+hive_socket_connect(const char* host, uint16_t port, uint32_t actor_handle) {
+    const char* err_str = NULL;
+    int id = socket_mgr_connect(ENV.sm_state, host, port, &err_str, actor_handle);
+    if(id < 0) {
+        hive_printf("hive socket connect error[%d]:%s", err_str, id);
+    }
+    return id;
+}
+
+int 
+hive_socket_listen(const char* host, uint16_t port, uint32_t actor_handle) {
+    return socket_mgr_listen(ENV.sm_state, host, port, actor_handle);
+}
+
+
+int 
+hive_socket_send(int id, const void* data, size_t size) {
+    return socket_mgr_send(ENV.sm_state, id, data, size);
+}
+
 
 
 int 

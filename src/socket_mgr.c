@@ -99,9 +99,9 @@ struct request_package {
 
 static void _socket_free(struct socket* s);
 static void _buffer_free(struct socket* s);
+static const char* _socket_check_error(struct socket* s);
 
-static void _actor_notify_connect(struct socket* s);
-static void _actor_notify_accept(struct socket* s);
+static void _actor_notify_accept(struct socket* ls, struct socket* s);
 static void _actor_notify_break(struct socket* s);
 static void _actor_notify_error(struct socket_mgr_state* state, struct socket* s, size_t size);
 static void _actor_notify_recv(struct socket_mgr_state* state, struct socket* s, size_t size);
@@ -119,7 +119,7 @@ socket_mgr_create() {
 
     state->_recv_data = (struct socket_data*)hive_malloc(sizeof(struct socket_data) + MAX_RECV_BUFFER);
     state->_recv_data->se = SE_RECIVE;
-    state->_recv_data->size = 0;
+    state->_recv_data->u.size = 0;
 
     assert(PKG_SIZE <= 256);
 
@@ -210,6 +210,27 @@ _socket_gen(struct socket_mgr_state* state) {
 }
 
 
+static void
+_socket_remove(struct socket_mgr_state* state, struct socket* s) {
+    enum socket_type st = s->type;
+    int fd = s->fd;
+    if(st == ST_INVALID) {
+        return;
+    }
+
+    if(st != ST_PREPARE) {
+        sp_del(state->pfd, fd);
+    }
+
+    int ret = close(fd);
+    assert(ret == 0);
+    _buffer_free(s);
+    s->type = ST_INVALID;
+    s->actor_handle = SYS_HANDLE;
+    s->fd = -1;
+}
+
+
 static inline struct buffer_block*
 _buffer_new_block(const void* data, size_t size) {
     struct buffer_block* block = (struct buffer_block*)hive_malloc(sizeof(struct buffer_block) + size);
@@ -257,7 +278,8 @@ _socket_listen(struct socket_mgr_state* state, const char* host, uint16_t port) 
     struct addrinfo* ai_list = NULL;
     char portstr[16];
     sprintf(portstr, "%d", port);
-    ai_hints.ai_family = IPPROTO_TCP;
+    ai_hints.ai_protocol = IPPROTO_TCP;
+    ai_hints.ai_family = AF_UNSPEC;
     ai_hints.ai_socktype = SOCK_STREAM;
 
     int status = getaddrinfo(host, portstr, &ai_hints, &ai_list);
@@ -443,15 +465,13 @@ CONNECT_ERROR:
 int
 socket_mgr_connect(struct socket_mgr_state* state, const char* host, uint16_t port, char const** out_err, uint32_t actor_handle) {
     int id = _socket_connect(state, host, port, out_err);
-    if(id<0) {
-        return id;
-    } else {
+    if(id >0 ) {
         struct socket* s = get_socket(id);
         assert(s->type == ST_CONNECTING || s->type == ST_CONNECTED);
         s->actor_handle = actor_handle;
         _request_connect(state, id);
-        return 0;
     }
+    return id;
 }
 
 
@@ -517,23 +537,6 @@ socket_mgr_send(struct socket_mgr_state* state, int id, const void* data, size_t
 }
 
 
-static void
-_socket_do_close(struct socket_mgr_state* state, struct socket* s) {
-    if(s->type == ST_INVALID) {
-        return;
-    }
-
-    int fd = s->fd;
-    sp_del(state->pfd, fd);
-    int ret = close(fd);
-    assert(ret == 0);
-    _buffer_free(s);
-    s->type = ST_INVALID;
-    s->actor_handle = SYS_HANDLE;
-    s->fd = -1;
-}
-
-
 
 static void
 _socket_do_send(struct socket_mgr_state* state, struct socket* s) {
@@ -590,6 +593,7 @@ _socket_getaddr(struct socket_mgr_state* state, struct socket* s) {
 
 
 
+
 static void
 _socket_do_listen(struct socket_mgr_state* state, struct socket* s) {
     int fd = s->fd;
@@ -610,7 +614,8 @@ _socket_do_listen(struct socket_mgr_state* state, struct socket* s) {
     cs->fd = client_fd;
     cs->actor_handle = s->actor_handle;
     cs->type = ST_FORWARD;
-    _actor_notify_accept(cs);
+    sp_add(state->pfd, client_fd, cs);
+    _actor_notify_accept(s, cs);
 }
 
 
@@ -633,6 +638,7 @@ _socket_do_recv(struct socket_mgr_state* state, struct socket* s) {
             }
         }else if (n == 0) {
             _actor_notify_break(s);
+            _socket_remove(state, s);
             break;
         }else {
             _actor_notify_recv(state, s, (size_t)n);
@@ -640,9 +646,41 @@ _socket_do_recv(struct socket_mgr_state* state, struct socket* s) {
     }
 }
 
+
+static void
+_socket_do_connect(struct socket_mgr_state* state, struct socket* s) {
+    const char* error_str = _socket_check_error(s);
+    if(error_str) {
+        strncpy((char*)state->_recv_data->data, error_str, MAX_RECV_BUFFER-1);
+        _actor_notify_error(state, s, strlen((char*)state->_recv_data->data)+1);
+        _socket_remove(state, s);
+    }else {
+        s->type = ST_FORWARD;
+        sp_write(state->pfd, s->fd, s, false);
+    }
+}
+
+
+static const char*
+_socket_check_error(struct socket* s) {
+    int err = 0;
+    socklen_t len = sizeof(err);
+    int code = getsockopt(s->fd, SOL_SOCKET, SO_ERROR, &err, &len);
+    const char* error_str = NULL;
+    if(code < 0 || err) {
+        if(code >= 0) {
+            error_str = strerror(err);
+        } else {
+            error_str = strerror(errno);
+        }
+    }
+    return error_str;
+}
+
+
 static void
 _actor_notify_recv(struct socket_mgr_state* state, struct socket* s, size_t size) {
-    state->_recv_data->size = size;
+    state->_recv_data->u.size = size;
     state->_recv_data->se = SE_RECIVE;
     hive_send(SYS_HANDLE, s->actor_handle, HIVE_TSOCKET, s->id, (void*)state->_recv_data, sizeof(struct socket_data)+size);
 }
@@ -652,35 +690,25 @@ static void
 _actor_notify_break(struct socket* s) {
     struct socket_data data;
     data.se = SE_BREAK;
-    data.size = 0;
+    data.u.size = 0;
     hive_send(SYS_HANDLE, s->actor_handle, HIVE_TSOCKET, s->id, (void*)&data, sizeof(data));
 }
 
 
 static void
 _actor_notify_error(struct socket_mgr_state* state, struct socket* s, size_t size) {
-    state->_recv_data->size = size;
+    state->_recv_data->u.size = size;
     state->_recv_data->se = SE_ERROR;
     hive_send(SYS_HANDLE, s->actor_handle, HIVE_TSOCKET, s->id, (void*)state->_recv_data, sizeof(struct socket_data)+size);
 }
 
 
 static void
-_actor_notify_accept(struct socket* s) {
+_actor_notify_accept(struct socket* ls, struct socket* s) {
     struct socket_data data;
-    data.size = 0;
+    data.u.id = s->id;
     data.se = SE_ACCEPT;
-    hive_send(SYS_HANDLE, s->actor_handle, HIVE_TSOCKET, s->id, (void*)&data, sizeof(data));
-}
-
-
-static void
-_actor_notify_connect(struct socket* s) {
-    struct socket_data data;
-    data.size = 0;
-    data.se = SE_CONNECTED;
-    s->type = ST_FORWARD;
-    hive_send(SYS_HANDLE, s->actor_handle, HIVE_TSOCKET, s->id, (void*)&data, sizeof(data));
+    hive_send(SYS_HANDLE, s->actor_handle, HIVE_TSOCKET, ls->id, (void*)&data, sizeof(data));
 }
 
 
@@ -698,7 +726,7 @@ _socket_request_ctrl(struct socket_mgr_state* state, struct request_package* msg
         case REQ_CONNECT: {
             sp_add(state->pfd, s->fd, s);
             if(s->type == ST_CONNECTED) {
-                _actor_notify_connect(s);
+                s->type = ST_FORWARD;
             }else if(s->type == ST_CONNECTING) {
                 sp_write(state->pfd, s->fd, s, true);
             }
@@ -707,7 +735,7 @@ _socket_request_ctrl(struct socket_mgr_state* state, struct request_package* msg
 
         case REQ_CLOSE: {
             spinlock_lock(&s->lock);
-            _socket_do_close(state, s);
+            _socket_remove(state, s);
             spinlock_unlock(&s->lock);
             break;
         }
@@ -775,11 +803,13 @@ socket_mgr_update(struct socket_mgr_state* state) {
         hive_panic("socket_mgr update sp_wait error:%d\n", n);
     }
 
+    printf("socket_mgr_update!!!! n=%d\n", n);
     bool has_request = false;
     int i;
     for(i=0; i<n; i++) {
         struct event* e = &(state->sp_event[i]);
         struct socket* s = (struct socket*)e->s;
+        printf("[%d] event:%p s:%p read:%d write:%d\n", i, e, s, e->read, e->write);
         // marke control request
         if(s == NULL) {
             if(e->error) {
@@ -793,11 +823,11 @@ socket_mgr_update(struct socket_mgr_state* state) {
 
         // socket event
         enum socket_type stype = s->type;
+        printf("stype: %d\n", stype);
         if(e->write) {
             switch(stype) {
                 case ST_CONNECTING: {
-                    _actor_notify_connect(s);
-                    sp_write(state->pfd, s->fd, s, false);
+                    _socket_do_connect(state, s);
                     break;
                 }
 
@@ -842,18 +872,10 @@ socket_mgr_update(struct socket_mgr_state* state) {
         }
 
         if(e->error) {
-            int err;
-            socklen_t len = sizeof(err);
-            int code = getsockopt(s->fd, SOL_SOCKET, SO_ERROR, &err, &len);
-            const char* error_str = NULL;
-            if(code < 0) {
-                error_str = strerror(errno);
-            }else if(err != 0) {
-                error_str  = strerror(err);
-            }else {
+            const char* error_str = _socket_check_error(s);
+            if(error_str == NULL) {
                 error_str = "unknow error";
             }
-
             strncpy((char*)state->_recv_data->data, error_str, MAX_RECV_BUFFER-1);
             _actor_notify_error(state, s, strlen((char*)state->_recv_data->data)+1);
         }

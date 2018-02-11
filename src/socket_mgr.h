@@ -1,25 +1,9 @@
 #ifndef _SOCKET_MGR_H_
 #define _SOCKET_MGR_H_
 
+#include "hive_socket.h"
+
 struct socket_mgr_state;
-
-#include <unistd.h>
-#include <stdint.h>
-
-enum socket_event {
-    SE_CONNECTED,
-    SE_BREAK,
-    SE_ACCEPT,
-    SE_RECIVE,
-    SE_ERROR,
-};
-
-
-struct socket_data {
-    enum socket_event se;
-    size_t size;
-    uint8_t data[0];
-};
 
 
 struct socket_mgr_state* socket_mgr_create();
