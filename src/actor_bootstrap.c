@@ -261,6 +261,14 @@ _lhive_socket_send(lua_State* L) {
 }
 
 
+static int
+_lhive_socket_close(lua_State* L) {
+    int id = luaL_checkinteger(L, 1);
+    int ret = hive_socket_close(id);
+    lua_pushinteger(L, ret);
+    return 1;
+}
+
 
 static int
 hive_lib(lua_State* L) {
@@ -273,6 +281,7 @@ hive_lib(lua_State* L) {
         {"hive_socket_connect", _lhive_socket_connect},
         {"hive_socket_listen", _lhive_socket_listen},
         {"hive_socket_send", _lhive_socket_send},
+        {"hive_socket_close", _lhive_socket_close},
         {NULL, NULL},
     };
     luaL_newlib(L, l);

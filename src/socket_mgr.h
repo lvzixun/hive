@@ -13,6 +13,8 @@ void socket_mgr_exit(struct socket_mgr_state* state);
 int socket_mgr_connect(struct socket_mgr_state* state, const char* host, uint16_t port, char const** out_err, uint32_t actor_handle);
 int socket_mgr_listen(struct socket_mgr_state* state, const char* host, uint16_t port, uint32_t actor_handle);
 int socket_mgr_send(struct socket_mgr_state* state, int id, const void* data, size_t size);
+int socket_mgr_close(struct socket_mgr_state* state, int id);
+
 int socket_mgr_update(struct socket_mgr_state* state);
 
 

@@ -404,7 +404,8 @@ _socket_connect(struct socket_mgr_state* state, const char* host, uint16_t port,
     struct addrinfo* ai_list = NULL;
     char portstr[16];
     sprintf(portstr, "%d", port);
-    ai_hints.ai_family = IPPROTO_TCP;
+    ai_hints.ai_protocol = IPPROTO_TCP;
+    ai_hints.ai_family = AF_UNSPEC;
     ai_hints.ai_socktype = SOCK_STREAM;
 
     *out_err = NULL;
@@ -465,7 +466,7 @@ CONNECT_ERROR:
 int
 socket_mgr_connect(struct socket_mgr_state* state, const char* host, uint16_t port, char const** out_err, uint32_t actor_handle) {
     int id = _socket_connect(state, host, port, out_err);
-    if(id >0 ) {
+    if(id >= 0 ) {
         struct socket* s = get_socket(id);
         assert(s->type == ST_CONNECTING || s->type == ST_CONNECTED);
         s->actor_handle = actor_handle;

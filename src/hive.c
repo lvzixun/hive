@@ -148,7 +148,7 @@ hive_socket_connect(const char* host, uint16_t port, uint32_t actor_handle) {
     const char* err_str = NULL;
     int id = socket_mgr_connect(ENV.sm_state, host, port, &err_str, actor_handle);
     if(id < 0) {
-        hive_printf("hive socket connect error[%d]:%s", err_str, id);
+        hive_printf("hive socket connect error[%d]:%s", id, err_str);
     }
     return id;
 }
@@ -164,6 +164,11 @@ hive_socket_send(int id, const void* data, size_t size) {
     return socket_mgr_send(ENV.sm_state, id, data, size);
 }
 
+
+int
+hive_socket_close(int id) {
+    return socket_mgr_close(ENV.sm_state, id);
+}
 
 
 int 
