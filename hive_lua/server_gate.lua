@@ -34,8 +34,8 @@ end
 local function socket_dispatch(id, event_type, data)
     if event_type == hive.SE_ACCEPT then
         local client_id = data
-        printf("### socket accept id:%s from id:%s", client_id, id)
-        hive.hive_socket_send(client_id, "\nwelcome hive~\n")
+        -- printf("### socket accept id:%s from id:%s", client_id, id)
+        -- hive.hive_socket_send(client_id, "\nwelcome hive~\n")
         local echo_actor = get_echo_actor()
         hive.hive_socket_attach(client_id, echo_actor)
 
@@ -60,7 +60,7 @@ function M.dispatch(source, handle, type, ...)
     elseif type == HIVE_TSOCKET then
         socket_dispatch(...)
     end
-    print("dispatch", source, handle, type, ...)
+    -- print("dispatch", source, handle, type, ...)
 end
 
 

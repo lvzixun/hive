@@ -11,13 +11,26 @@ end
 local M = {}
 
 
+local source = [[
+    HTTP/1.0 200 OK
+    Content-Type: text/html; charset=UTF-8
+
+    <!DOCTYPE html>
+    <html>
+      <p>welcome to hive~</p>
+    </html>
+]]
+
 
 local function socket_dispatch(id, event_type, data)
     if event_type == hive.SE_RECIVE then
         local s = string.format("\nrecv:%s from socket id:%s by actor:%s\n", data, id, self_handle)
-        hive.hive_socket_send(id, s)
+        hive.hive_socket_send(id, source)
+        hive.hive_socket_close(id)
+
     elseif event_type == hive.SE_BREAK then
         printf("break socket id:%s by actor:%s", id, self_handle)
+
     end
 end
 
