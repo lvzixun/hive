@@ -1,4 +1,4 @@
-local hive = require "hive"
+local hive = require "hive.c"
 local HIVE_TCREATE = hive.HIVE_TCREATE
 local HIVE_TSOCKET = hive.HIVE_TSOCKET
 local self_handle = nil

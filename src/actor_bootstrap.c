@@ -319,7 +319,7 @@ _register_lib(lua_State* L) {
     luaL_openlibs(L);
 
     // register hive lib
-    reg_lua_lib(L, hive_lib, "hive");
+    reg_lua_lib(L, hive_lib, "hive.c");
 
     // register socket lib
 }
