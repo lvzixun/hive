@@ -653,6 +653,7 @@ _socket_do_listen(struct socket_mgr_state* state, struct socket* s) {
     cs->fd = client_fd;
     cs->actor_handle = SYS_HANDLE;
     cs->type = ST_PREPARE;
+    sp_nonblocking(client_fd);
     _actor_notify_accept(s->id, cs->id, s->actor_handle);
 }
 
