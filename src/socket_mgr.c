@@ -73,6 +73,7 @@ enum request_type {
     REQ_LISTEN,
     REQ_CONNECT,
     REQ_CLOSE,
+    REQ_ATTACH,
     REQ_SEND,
 
     REQ_EXIT,
@@ -87,6 +88,7 @@ struct request_package {
     int socket_id;
     union {
         struct request_msgsend msgsend;
+        uint32_t attach_handle;
     } v;
 };
 
@@ -101,7 +103,7 @@ static void _socket_free(struct socket* s);
 static void _buffer_free(struct socket* s);
 static const char* _socket_check_error(struct socket* s);
 
-static void _actor_notify_accept(struct socket* ls, struct socket* s);
+static void _actor_notify_accept(int server_id, int client_id, uint32_t target_handle);
 static void _actor_notify_break(struct socket* s);
 static void _actor_notify_error(struct socket_mgr_state* state, struct socket* s, size_t size);
 static void _actor_notify_recv(struct socket_mgr_state* state, struct socket* s, size_t size);
@@ -209,6 +211,17 @@ _socket_gen(struct socket_mgr_state* state) {
     return NULL; 
 }
 
+static void
+_socket_attach(struct socket_mgr_state* state, struct socket* s, uint32_t actor_handle) {
+    enum socket_type st = s->type;
+    int fd = s->fd;
+    if(st != ST_PREPARE) {
+        return;
+    }
+    s->actor_handle = actor_handle;
+    s->type = ST_FORWARD;
+    sp_add(state->pfd, fd, s);
+}
 
 static void
 _socket_remove(struct socket_mgr_state* state, struct socket* s) {
@@ -373,6 +386,15 @@ _request_close(struct socket_mgr_state* state, int id) {
 }
 
 static void
+_request_attach(struct socket_mgr_state* state, int id, uint32_t actor_handle) {
+    struct request_package msg;
+    msg.type = REQ_ATTACH;
+    msg.socket_id = id;
+    msg.v.attach_handle = actor_handle;
+    _request_send(state, &msg);
+}
+
+static void
 _request_msgsend(struct socket_mgr_state* state, int id, struct buffer_block* block) {
     struct request_package msg;
     msg.type = REQ_SEND;
@@ -385,6 +407,7 @@ _request_msgsend(struct socket_mgr_state* state, int id, struct buffer_block* bl
 int
 socket_mgr_listen(struct socket_mgr_state* state, const char* host, uint16_t port, uint32_t actor_handle) {
     int id = _socket_listen(state, host, port);
+    printf("socket_mgr_listen!! id :%d\n", id);
     if(id < 0) {
         return id;
     }else {
@@ -476,6 +499,7 @@ socket_mgr_connect(struct socket_mgr_state* state, const char* host, uint16_t po
 }
 
 
+
 int
 socket_mgr_close(struct socket_mgr_state* state, int id) {
     if(id < 0) {
@@ -486,6 +510,19 @@ socket_mgr_close(struct socket_mgr_state* state, int id) {
         return -2;
     }
     _request_close(state, id);
+    return 0;
+}
+
+int
+socket_mgr_attach(struct socket_mgr_state* state, int id, uint32_t actor_handle) {
+    if(id < 0) {
+        return -1;
+    }
+    struct socket* s = get_socket(id);
+    if(!s || s->type != ST_PREPARE || s->id != id) {
+        return -2;
+    }
+    _request_attach(state, id, actor_handle);
     return 0;
 }
 
@@ -614,10 +651,9 @@ _socket_do_listen(struct socket_mgr_state* state, struct socket* s) {
     }
 
     cs->fd = client_fd;
-    cs->actor_handle = s->actor_handle;
-    cs->type = ST_FORWARD;
-    sp_add(state->pfd, client_fd, cs);
-    _actor_notify_accept(s, cs);
+    cs->actor_handle = SYS_HANDLE;
+    cs->type = ST_PREPARE;
+    _actor_notify_accept(s->id, cs->id, s->actor_handle);
 }
 
 
@@ -706,11 +742,11 @@ _actor_notify_error(struct socket_mgr_state* state, struct socket* s, size_t siz
 
 
 static void
-_actor_notify_accept(struct socket* ls, struct socket* s) {
+_actor_notify_accept(int server_id, int client_id, uint32_t target_handle) {
     struct socket_data data;
-    data.u.id = s->id;
+    data.u.id = client_id;
     data.se = SE_ACCEPT;
-    hive_send(SYS_HANDLE, s->actor_handle, HIVE_TSOCKET, ls->id, (void*)&data, sizeof(data));
+    hive_send(SYS_HANDLE, target_handle, HIVE_TSOCKET, server_id, (void*)&data, sizeof(data));
 }
 
 
@@ -732,6 +768,13 @@ _socket_request_ctrl(struct socket_mgr_state* state, struct request_package* msg
             }else if(s->type == ST_CONNECTING) {
                 sp_write(state->pfd, s->fd, s, true);
             }
+            break;
+        }
+
+        case REQ_ATTACH: {
+            spinlock_lock(&s->lock);
+            _socket_attach(state, s, msg->v.attach_handle);
+            spinlock_unlock(&s->lock);
             break;
         }
 

@@ -25,6 +25,7 @@ struct socket_data {
 int hive_socket_connect(const char* host, uint16_t port, uint32_t actor_handle);
 int hive_socket_listen(const char* host, uint16_t port, uint32_t actor_handle);
 int hive_socket_send(int id, const void* data, size_t size);
+int hive_socket_attach(int id, uint32_t actor_handle);
 int hive_socket_close(int id);
 
 #endif

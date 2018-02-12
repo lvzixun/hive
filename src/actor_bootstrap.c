@@ -251,6 +251,16 @@ _lhive_socket_listen(lua_State* L) {
 
 
 static int
+_lhive_socket_attach(lua_State* L) {
+    int id = luaL_checkinteger(L, 1);
+    uint32_t actor_handle = _check_handle(L, 2);
+    int ret = hive_socket_attach(id, actor_handle);
+    lua_pushinteger(L, ret);
+    return 1;
+}
+
+
+static int
 _lhive_socket_send(lua_State* L) {
     int id = luaL_checkinteger(L, 1);
     size_t size;
@@ -280,6 +290,7 @@ hive_lib(lua_State* L) {
 
         {"hive_socket_connect", _lhive_socket_connect},
         {"hive_socket_listen", _lhive_socket_listen},
+        {"hive_socket_attach", _lhive_socket_attach},
         {"hive_socket_send", _lhive_socket_send},
         {"hive_socket_close", _lhive_socket_close},
         {NULL, NULL},
@@ -373,8 +384,10 @@ _bootstrap_dispatch(uint32_t source, uint32_t self, int type, int session, void*
     switch(type) {
         case HIVE_TCREATE:
             _bootstrap_start(self);
+            _lua_actor_dispatch(source, self, type, session, data, sz, &ACTOR_BS);
             break;
         case HIVE_TRELEASE:
+            _lua_actor_dispatch(source, self, type, session, data, sz, &ACTOR_BS);
             _bootstrap_exit(self);
             break;
         default:

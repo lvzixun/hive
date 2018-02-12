@@ -170,6 +170,10 @@ hive_socket_close(int id) {
     return socket_mgr_close(ENV.sm_state, id);
 }
 
+int 
+hive_socket_attach(int id, uint32_t actor_handle) {
+    return socket_mgr_attach(ENV.sm_state, id, actor_handle);
+}
 
 int 
 main(int argc, char const *argv[]) {
