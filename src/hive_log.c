@@ -1,5 +1,6 @@
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 
 #define format2buffer(f) va_list args; \
@@ -25,4 +26,5 @@ void
 hive_panic(const char* f, ...) {
     format2buffer(f);
     fprintf(stderr, "[hive panic] %s\n", buffer);
+    exit(1);
 }

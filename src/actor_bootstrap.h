@@ -2,6 +2,6 @@
 #define _ACTOR_BOOTSTRAP_H_
 
 
-void actor_bootstrap_init();
+void actor_bootstrap_init(const char* bootstrap_path);
 
 #endif

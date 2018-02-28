@@ -180,7 +180,7 @@ main(int argc, char const *argv[]) {
     hive_init();
 
     // regisger bootstrap actor
-    actor_bootstrap_init();
+    actor_bootstrap_init((argc>1)?(argv[1]):(NULL));
 
     hive_start();
 

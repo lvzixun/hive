@@ -18,10 +18,9 @@ struct actor_state {
 
 
 #define HIVE_LUA_STATE  "__hive_state__"
-#define HIVE_LUA_MODULE "__hive_module__"
 #define HIVE_LUA_TRACEBACK "__hive_debug_traceback__"
 
-#define HIVE_ACTOR_METHOD_DISPATCH "dispatch"
+#define HIVE_ACTOR_METHOD_DISPATCH "hive_dispatch"
 #define bs_log(...) hive_elog("hive actor_bootstrap", __VA_ARGS__)
 
 static int hive_lib(lua_State* L);
@@ -91,8 +90,7 @@ _lua_actor_dispatch(uint32_t source, uint32_t self, int type, int session, void*
     int n = 5;
     int top = lua_gettop(L);
     lua_getfield(L, LUA_REGISTRYINDEX, HIVE_LUA_TRACEBACK);
-    lua_getfield(L, LUA_REGISTRYINDEX, HIVE_LUA_MODULE);
-    lua_getfield(L, -1, HIVE_ACTOR_METHOD_DISPATCH);
+    lua_getfield(L, LUA_REGISTRYINDEX, HIVE_ACTOR_METHOD_DISPATCH);
 
     lua_pushinteger(L, source);
     lua_pushinteger(L, self);
@@ -135,12 +133,14 @@ _lua_actor_dispatch(uint32_t source, uint32_t self, int type, int session, void*
         bs_log("hive actor dispatch error:[%d] %s\n", ret, lua_tostring(L, -1));
     }
     lua_settop(L, top);
-
-    if(type == HIVE_TRELEASE) {
-        lua_close(L);
-    }
 }
 
+static int
+_lhive_start(lua_State* L) {
+    luaL_checktype(L, -1, LUA_TFUNCTION);
+    lua_setfield(L, LUA_REGISTRYINDEX, HIVE_ACTOR_METHOD_DISPATCH);
+    return 0;
+}
 
 
 static int
@@ -168,12 +168,6 @@ _lhive_register(lua_State* L) {
         int ret = lua_pcall(NL, 0, 1, -2);
         if(ret != LUA_OK) {
             _throw_error(L, NL, ret);
-        }else {
-            if(lua_type(NL, -1) != LUA_TTABLE) {
-                lua_pushstring(L, "actor module should be return table");
-                _throw_error(L, NL, 0);
-            }
-            lua_setfield(NL, LUA_REGISTRYINDEX, HIVE_LUA_MODULE);
         }
     }
 
@@ -285,6 +279,7 @@ hive_lib(lua_State* L) {
     luaL_Reg l[] = {
         {"hive_register", _lhive_register}, 
         {"hive_unregister", _lhive_unregister},
+        {"hive_start", _lhive_start},
         {"hive_exit", _lhive_exit},
         {"hive_send", _lhive_send},
 
@@ -309,6 +304,10 @@ hive_lib(lua_State* L) {
     return 1;
 }
 
+
+static char inject_source[] = "package.path = './hive_lua/?.lua;' .. package.path";
+
+
 static void
 _register_lib(lua_State* L) {
     // register traceback
@@ -317,6 +316,11 @@ _register_lib(lua_State* L) {
 
     // open base lib
     luaL_openlibs(L);
+
+    // inject source
+    if(luaL_dostring(L, inject_source)) {
+        hive_panic("inject source error: %s", lua_tostring(L, -1));
+    }
 
     // register hive lib
     reg_lua_lib(L, hive_lib, "hive.c");
@@ -345,18 +349,12 @@ _bootstrap_start(uint32_t self) {
         int ret = lua_pcall(L, 0, 1, -2);
         if(ret != LUA_OK) {
             goto BOOTSTRAP_ERROR;
-        } else {
-            if(lua_type(L, -1) != LUA_TTABLE) {
-                lua_pushstring(L, "bootstrap actor module should be return table");
-                goto BOOTSTRAP_ERROR;
-            }
-            lua_setfield(L, LUA_REGISTRYINDEX, HIVE_LUA_MODULE);
         }
     }
     return;
 
 BOOTSTRAP_ERROR:
-    bs_log("hive start bootstrap error: [%d] %s\n", ret, lua_tostring(L, -1));
+    bs_log("hive start bootstrap path:%s error: [%d] %s\n", path, ret, lua_tostring(L, -1));
     hive_unregister(self);
 }
 
@@ -364,6 +362,7 @@ BOOTSTRAP_ERROR:
 
 static void
 _bootstrap_exit(uint32_t self) {
+    printf("_bootstrap_exit free: %s self:%d\n", ACTOR_BS.bootstrap_path, self);
     lua_close(ACTOR_BS.L);
     hive_free(ACTOR_BS.bootstrap_path);
 }
@@ -397,7 +396,10 @@ _bootstrap_dispatch(uint32_t source, uint32_t self, int type, int session, void*
 }
 
 void
-actor_bootstrap_init() {
-    _bootstrap_setpath("hive_lua/bootstrap.lua");
+actor_bootstrap_init(const char* bootstrap_path) {
+    if(bootstrap_path == NULL) {
+        bootstrap_path = "hive_lua/bootstrap.lua";
+    }
+    _bootstrap_setpath(bootstrap_path);
     hive_register("bootstrap", _bootstrap_dispatch, NULL);
 }
