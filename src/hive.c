@@ -9,7 +9,7 @@
 #include "hive.h"
 #include "hive_actor.h"
 #include "hive_memory.h"
-#include "actor_bootstrap.h"
+#include "hive_bootstrap.h"
 #include "hive_log.h"
 #include "socket_mgr.h"
 
@@ -179,8 +179,8 @@ int
 main(int argc, char const *argv[]) {
     hive_init();
 
-    // regisger bootstrap actor
-    actor_bootstrap_init((argc>1)?(argv[1]):(NULL));
+    // start bootstrap actor
+    hive_bootstrap_init((argc>1)?(argv[1]):(NULL));
 
     hive_start();
 

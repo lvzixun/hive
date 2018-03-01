@@ -14,14 +14,14 @@ struct actor_state {
     lua_State* L;
     char* bootstrap_path;
     uint32_t handle;
-}ACTOR_BS;
+};
 
 
 #define HIVE_LUA_STATE  "__hive_state__"
 #define HIVE_LUA_TRACEBACK "__hive_debug_traceback__"
 
 #define HIVE_ACTOR_METHOD_DISPATCH "hive_dispatch"
-#define bs_log(...) hive_elog("hive actor_bootstrap", __VA_ARGS__)
+#define bs_log(...) hive_elog("hive bootstrap", __VA_ARGS__)
 
 static int hive_lib(lua_State* L);
 static void _register_lib(lua_State* L);
@@ -74,6 +74,9 @@ _throw_error(lua_State* L, lua_State* NL, int ret) {
     size_t sz = strlen(err) + 64;
     char* err_buff = (char*)hive_malloc(sz);
     snprintf(err_buff, sz, "hive register actor error:[%d] %s\n", ret, err);
+    if(!L) {
+        hive_panic("bootstrap actor is error:%s", err_buff);
+    }
     lua_pushstring(L, err_buff);
     hive_free(err_buff);
     lua_close(NL);
@@ -133,6 +136,10 @@ _lua_actor_dispatch(uint32_t source, uint32_t self, int type, int session, void*
         bs_log("hive actor dispatch error:[%d] %s\n", ret, lua_tostring(L, -1));
     }
     lua_settop(L, top);
+
+    if(type == HIVE_TRELEASE) {
+        lua_close(L);
+    }
 }
 
 static int
@@ -143,14 +150,8 @@ _lhive_start(lua_State* L) {
 }
 
 
-static int
-_lhive_register(lua_State* L) {
-    const char* path = lua_tostring(L, 1);
-    const char* name = lua_tostring(L, 2);
-    if(!path) {
-        return 0;
-    }
-
+static uint32_t
+__hive_register(lua_State* L, const char* path, const char* name) {
     lua_State* NL = luaL_newstate();
     struct actor_state* state = (struct actor_state*)lua_newuserdata(NL, sizeof(struct actor_state));
     state->L = NL;
@@ -172,13 +173,24 @@ _lhive_register(lua_State* L) {
     }
 
     uint32_t handle = hive_register((char*)name, _lua_actor_dispatch, state);
-    if(handle == 0) {
-        lua_pushstring(L, "hive register error");
-        _throw_error(L, NL, -1);
-    } else {
-        state->handle = handle;
-        lua_pushinteger(L, handle);
+    state->handle = handle;
+    return handle;
+}
+
+
+static int
+_lhive_register(lua_State* L) {
+    const char* path = lua_tostring(L, 1);
+    const char* name = lua_tostring(L, 2);
+    if(!path) {
+        return 0;
     }
+
+    uint32_t handle = __hive_register(L, path, name);
+    if(handle == 0) {
+        return 0;
+    }
+    lua_pushinteger(L, handle);
     return 1;
 }
 
@@ -324,82 +336,17 @@ _register_lib(lua_State* L) {
 
     // register hive lib
     reg_lua_lib(L, hive_lib, "hive.c");
-
-    // register socket lib
 }
 
-
-static void
-_bootstrap_start(uint32_t self) {
-    lua_State* L = luaL_newstate();
-    ACTOR_BS.L = L;
-    ACTOR_BS.handle = self;
-    lua_pushlightuserdata(L, (void*)&ACTOR_BS);
-    lua_setfield(L, LUA_REGISTRYINDEX, HIVE_LUA_STATE);
-    _register_lib(L);
-
-    char* path = ACTOR_BS.bootstrap_path;
-    assert(path);
-    int ret = luaL_loadfile(L, path);
-    if(ret != LUA_OK) {
-        goto BOOTSTRAP_ERROR;
-    } else {
-        lua_getfield(L, LUA_REGISTRYINDEX, HIVE_LUA_TRACEBACK);
-        lua_pushvalue(L, -2);
-        int ret = lua_pcall(L, 0, 1, -2);
-        if(ret != LUA_OK) {
-            goto BOOTSTRAP_ERROR;
-        }
-    }
-    return;
-
-BOOTSTRAP_ERROR:
-    bs_log("hive start bootstrap path:%s error: [%d] %s\n", path, ret, lua_tostring(L, -1));
-    hive_unregister(self);
-}
-
-
-
-static void
-_bootstrap_exit(uint32_t self) {
-    printf("_bootstrap_exit free: %s self:%d\n", ACTOR_BS.bootstrap_path, self);
-    lua_close(ACTOR_BS.L);
-    hive_free(ACTOR_BS.bootstrap_path);
-}
-
-
-static void
-_bootstrap_setpath(const char* path) {
-    assert(path);
-    size_t sz = strlen(path);
-    char* _path = (char*)hive_malloc(sz+1);
-    strcpy(_path, path);
-    ACTOR_BS.bootstrap_path = _path;
-}
-
-
-static void
-_bootstrap_dispatch(uint32_t source, uint32_t self, int type, int session, void* data, size_t sz, void* ud) {
-    switch(type) {
-        case HIVE_TCREATE:
-            _bootstrap_start(self);
-            _lua_actor_dispatch(source, self, type, session, data, sz, &ACTOR_BS);
-            break;
-        case HIVE_TRELEASE:
-            _lua_actor_dispatch(source, self, type, session, data, sz, &ACTOR_BS);
-            _bootstrap_exit(self);
-            break;
-        default:
-            _lua_actor_dispatch(source, self, type, session, data, sz, &ACTOR_BS);
-            break;
-    }
-}
 
 void
-actor_bootstrap_init(const char* bootstrap_path) {
+hive_bootstrap_init(const char* bootstrap_path) {
     if(bootstrap_path == NULL) {
-        bootstrap_path = "hive_lua/bootstrap.lua";
+        bootstrap_path = "examples/bootstrap.lua";
     }
-    _bootstrap_setpath(bootstrap_path);
-    hive_register("bootstrap", _bootstrap_dispatch, NULL);
+    
+    uint32_t handle = __hive_register(NULL, bootstrap_path, "bootstrap");
+    if(handle == 0) {
+        hive_panic("invalid bootstrap actor from `%s`", bootstrap_path);
+    }
 }
