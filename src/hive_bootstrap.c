@@ -12,13 +12,13 @@
 
 struct actor_state {
     lua_State* L;
-    char* bootstrap_path;
     uint32_t handle;
 };
 
 
 #define HIVE_LUA_STATE  "__hive_state__"
 #define HIVE_LUA_TRACEBACK "__hive_debug_traceback__"
+#define HIVE_ACTOR_NAME "__hive_actor_name__"
 
 #define HIVE_ACTOR_METHOD_DISPATCH "hive_dispatch"
 #define bs_log(...) hive_elog("hive bootstrap", __VA_ARGS__)
@@ -149,6 +149,11 @@ _lhive_start(lua_State* L) {
     return 0;
 }
 
+static int
+_lhive_name(lua_State* L) {
+    lua_getfield(L, LUA_REGISTRYINDEX, HIVE_ACTOR_NAME);
+    return 1;
+}
 
 static uint32_t
 __hive_register(lua_State* L, const char* path, const char* name) {
@@ -157,6 +162,8 @@ __hive_register(lua_State* L, const char* path, const char* name) {
     state->L = NL;
     state->handle = 0;
     lua_setfield(NL, LUA_REGISTRYINDEX, HIVE_LUA_STATE);
+    lua_pushstring(NL, name);
+    lua_setfield(L, LUA_REGISTRYINDEX, HIVE_ACTOR_NAME);
     _register_lib(NL);
 
     int ret = luaL_loadfile(NL, path);
@@ -294,6 +301,7 @@ hive_lib(lua_State* L) {
         {"hive_start", _lhive_start},
         {"hive_exit", _lhive_exit},
         {"hive_send", _lhive_send},
+        {"hive_name", _lhive_name},
 
         {"hive_socket_connect", _lhive_socket_connect},
         {"hive_socket_listen", _lhive_socket_listen},

@@ -46,6 +46,7 @@ local socket_driver = {
 local dispatch_driver = {
     [HIVE_TCREATE] = function (source, handle, type, ...)
         SELF_HANDLE = handle
+        SELF_NAME = c.hive_name()
         check_call(_actor_obj, "on_create", _actor_ud)
     end,
 
