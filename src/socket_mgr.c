@@ -407,17 +407,14 @@ _request_msgsend(struct socket_mgr_state* state, int id, struct buffer_block* bl
 int
 socket_mgr_listen(struct socket_mgr_state* state, const char* host, uint16_t port, uint32_t actor_handle) {
     int id = _socket_listen(state, host, port);
-    printf("socket_mgr_listen!! id :%d\n", id);
-    if(id < 0) {
-        return id;
-    }else {
+    if(id >= 0) {
         struct socket* s = get_socket(id);
         assert(s->type == ST_LISTEN);
         s->actor_handle = actor_handle;
         sp_nonblocking(s->fd);
         _request_listen(state, s->id);
-        return 0;
     }
+    return id;
 }
 
 
