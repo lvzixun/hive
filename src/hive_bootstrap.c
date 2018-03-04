@@ -163,7 +163,7 @@ __hive_register(lua_State* L, const char* path, const char* name) {
     state->handle = 0;
     lua_setfield(NL, LUA_REGISTRYINDEX, HIVE_LUA_STATE);
     lua_pushstring(NL, name);
-    lua_setfield(L, LUA_REGISTRYINDEX, HIVE_ACTOR_NAME);
+    lua_setfield(NL, LUA_REGISTRYINDEX, HIVE_ACTOR_NAME);
     _register_lib(NL);
 
     int ret = luaL_loadfile(NL, path);
