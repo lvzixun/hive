@@ -539,7 +539,8 @@ socket_mgr_send(struct socket_mgr_state* state, int id, const void* data, size_t
         return -1;
     }
     struct socket* s = get_socket(id);
-    if(!s || s->type == ST_INVALID || s->id != id) {
+    enum socket_type st = s->type;
+    if(!s || (st != ST_FORWARD && st != ST_CONNECTING && st != ST_CONNECTED) || s->id != id) {
         return -2;
     }
 
@@ -550,9 +551,11 @@ socket_mgr_send(struct socket_mgr_state* state, int id, const void* data, size_t
             return -2;
         }
 
-        if(write_buffer_empty(s)) {
+        if(write_buffer_empty(s) && st == ST_FORWARD) {
             int fd = s->fd;
+            // printf("socket_mgr_send  fd:%d data:%p size:%d\n", fd, data, size);
             n = write(fd, data, size);
+            // printf("socket_mgr_send write n:%zd\n", n);
             if(n < 0) {
                 n = 0;
             }else if(n < size) {
@@ -584,7 +587,7 @@ _socket_do_send(struct socket_mgr_state* state, struct socket* s) {
         void* data = p->buffer + offset;
         size_t sz = p->sz - offset;
         int n = write(fd, data, sz);
-        // printf("socket write data:%p size:%zd n:%d\n", data, sz, n);
+        // printf("socket fd:%d write data:%p size:%zd n:%d\n", fd, data, sz, n);
         if(n<0) {
             break;
         }else if(n<sz) {
@@ -660,6 +663,7 @@ _socket_do_recv(struct socket_mgr_state* state, struct socket* s) {
     int fd = s->fd;
     for(;;) {
         ssize_t n = read(fd, state->_recv_data->data, MAX_RECV_BUFFER);
+        // printf("_socket_do_recv fd:%d n:%zd\n", fd, n);
         if(n < 0) {
             int err = errno;
             if(err == EAGAIN) {
@@ -683,16 +687,20 @@ _socket_do_recv(struct socket_mgr_state* state, struct socket* s) {
 }
 
 
-static void
+static bool
 _socket_do_connect(struct socket_mgr_state* state, struct socket* s) {
     const char* error_str = _socket_check_error(s);
     if(error_str) {
         strncpy((char*)state->_recv_data->data, error_str, MAX_RECV_BUFFER-1);
         _actor_notify_error(state, s, strlen((char*)state->_recv_data->data)+1);
         _socket_remove(state, s);
+        return false;
     }else {
         s->type = ST_FORWARD;
-        sp_write(state->pfd, s->fd, s, false);
+        if(write_buffer_empty(s)) {
+            sp_write(state->pfd, s->fd, s, false);
+        }
+        return true;
     }
 }
 
@@ -763,6 +771,9 @@ _socket_request_ctrl(struct socket_mgr_state* state, struct request_package* msg
             sp_add(state->pfd, s->fd, s);
             if(s->type == ST_CONNECTED) {
                 s->type = ST_FORWARD;
+                if(!write_buffer_empty(s)) {
+                    sp_write(state->pfd, s->fd, s, true);
+                }
             }else if(s->type == ST_CONNECTING) {
                 sp_write(state->pfd, s->fd, s, true);
             }
@@ -851,7 +862,8 @@ socket_mgr_update(struct socket_mgr_state* state) {
     for(i=0; i<n; i++) {
         struct event* e = &(state->sp_event[i]);
         struct socket* s = (struct socket*)e->s;
-        // printf("[%d] count:%d event:%p s:%p read:%d write:%d\n", i, n, e, s, e->read, e->write);
+        // printf("[%d] count:%d event:%p s:%p id:%d read:%d write:%d\n", i, n, e, s, 
+        //     (s)?(s->id):(-1), e->read, e->write);
         // marke control request
         if(s == NULL) {
             if(e->error) {
@@ -865,13 +877,17 @@ socket_mgr_update(struct socket_mgr_state* state) {
 
         // socket event
         enum socket_type stype = s->type;
+
+        // check socket connect
+        if (s->type == ST_CONNECTING) {
+            if(!_socket_do_connect(state, s)) {
+                break;
+            }
+            stype = s->type;
+        }
+
         if(e->write) {
             switch(stype) {
-                case ST_CONNECTING: {
-                    _socket_do_connect(state, s);
-                    break;
-                }
-
                 case ST_FORWARD: {
                     if(spinlock_trylock(&s->lock)) {
                         _socket_do_send(state, s);
@@ -901,9 +917,6 @@ socket_mgr_update(struct socket_mgr_state* state) {
                     _socket_do_recv(state, s);
                     break;
                 }
-
-                case ST_CONNECTED: // nothing todo 
-                    break;
 
                 default:{
                     hive_panic("invalid  socket type: %d recv read event.", stype);
