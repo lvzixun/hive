@@ -154,5 +154,25 @@ function M.socket_close(id)
 end
 
 
+local function _resume_aux(co, ok, err, ...)
+    if not ok then
+        error(debug.traceback(co, err))
+    else
+        return err, ...
+    end
+end
+
+function M.co_new(f)
+    return coroutine.create(f)
+end
+
+function M.co_resume(co, ...)
+    return _resume_aux(co, coroutine.resume(co, ...))
+end
+
+function M.co_yield(co, ...)
+    return coroutine.yield(co, ...)
+end
+
 return M
 
