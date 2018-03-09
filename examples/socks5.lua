@@ -9,21 +9,20 @@ local Socket_M = {}
 ----- socks5 server gate
 function M:on_create()
     if SELF_NAME ~= "agent" then
-        local id = hive.socket_listen("0.0.0.0", 9941, Socket_M)
+        local id = hive.socket_listen("0.0.0.0", 9941, {
+                on_accept = function (_, client_id)
+                    local agent_handle = hive.hive_create("examples/socks5.lua", "agent")
+                    if agent_handle then
+                        hive.hive_send(agent_handle, client_id)
+                    else
+                        hive.socket_close(client_id)
+                    end
+                end
+            })
         print("socket_listen: 127.0.0.1:9941")
         assert(id >= 0)
     end
 end
-
-function Socket_M:on_accept(client_id)
-    local agent_handle = hive.hive_create("examples/socks5.lua", "agent")
-    if agent_handle then
-        hive.hive_send(agent_handle, client_id)
-    else
-        hive.socket_close(client_id)
-    end
-end
-
 
 
 ----- buffer class -----
@@ -210,11 +209,11 @@ local function resovle(id)
 
     connect_addr = "127.0.0.1"
     connect_port = 9391
-    local proxy_id = hive.socket_connect(connect_addr, connect_port, proxy_m)
-    if not proxy_id then
-        exit_agent()
-        return
-    end
+    -- local proxy_id = hive.socket_connect(connect_addr, connect_port, proxy_m)
+    -- if not proxy_id then
+    --     exit_agent()
+    --     return
+    -- end
 
     --  response connect success
     local s = spack(">I1I1I1I1I1I1I1I1I2",
@@ -243,6 +242,11 @@ end
 function Socket_M:on_break(id)
     print("break connect from id:"..tostring(id))
 end
+
+function Socket_M:on_error(id, data)
+    print("on_error", id, data)
+end
+
 
 function M:on_recv(client_id)
     if SELF_NAME == "agent" then
