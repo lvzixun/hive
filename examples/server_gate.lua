@@ -27,7 +27,10 @@ function M:on_create()
     end
 
     -- open socket listen
-    local id = hive.socket_listen("0.0.0.0", 9291, Socket_M)
+    local ip = "127.0.0.1"
+    local port = 9291
+    local id = hive.socket_listen(ip, port, Socket_M)
+    print(string.format("listen %s:%s", ip, port))
 end
 
 
