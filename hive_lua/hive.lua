@@ -59,7 +59,6 @@ local dispatch_driver = {
     end,
 
     [HIVE_TNORMAL] = function (source, handle, type, session, data)
-        print("source, handle, type, session, data", source, handle, type, session, data)
         check_call(_actor_obj, "on_recv", _actor_ud, source, session, data)
     end,
 

@@ -17,6 +17,11 @@ function M:on_create()
                     else
                         hive.socket_close(client_id)
                     end
+                end,
+
+                on_error = function (_, id, err)
+                    local s = string.format("error:%s listen from id:%s", err, id)
+                    print(s)
                 end
             })
         print("socket_listen: 127.0.0.1:9941")
@@ -44,9 +49,7 @@ end
 
 
 function buffer_mt:pop(max_count)
-    print("buffer", max_count, self.v_size)
     if self.v_size <= 0 then
-        print("!!!")
         return false
     end
 
@@ -107,7 +110,6 @@ end
 
 
 ----- socks5 auth and resovle
-
 local cur_buffer = new_buffer()
 local function socket_read(max_count)
     local co = coroutine.running()
@@ -130,13 +132,9 @@ local function resovle(id)
         hive.hive_free()
     end
 
-    print("begin resovle!!!")
-
     -- client request
     local s = socket_read(2)
-    print("call here?")
     local ver, nmethods = sunpack(">I1I1", s)
-    print("ver, nmethods", ver, nmethods)
 
     -- check version
     if ver ~= 5 then
@@ -145,19 +143,14 @@ local function resovle(id)
     end
 
     -- ignore metchods
-    print("11111111111")
     socket_read(nmethods)
 
     -- response
-    print("2222222")
     local resp = spack(">I1I1", 0x05, 0x00)
-    print("&&&&&&", id, #resp)
     local ret = hive.socket_send(id, resp)
-    print("socket_send", ret)
 
     -- resovle request
     s = socket_read(4)
-    print("333333")
     local ver, cmd, rsv, atyp = sunpack(">I1I1I1I1", s)
     if ver ~= 5 then
         exit_agent()
@@ -170,7 +163,6 @@ local function resovle(id)
         return
     end
 
-    print("ver, cmd, rsv, atyp", ver, cmd, rsv, atyp)
     local connect_addr
     if atyp == 1 then  -- ipv4 address
         local s = socket_read(4)
@@ -190,7 +182,7 @@ local function resovle(id)
     end
 
     local connect_port = sunpack(">I2", socket_read(2))
-    print("request connect:", connect_addr, connect_port)
+    print("connect:", connect_addr, connect_port)
 
     local proxy_m = {}
     function proxy_m:on_error(id)
@@ -203,73 +195,53 @@ local function resovle(id)
     end
 
     function proxy_m:on_recv(_, data)
-        print("proxy on_recv", #data)
         hive.socket_send(id, data)
     end
 
-    connect_addr = "127.0.0.1"
-    connect_port = 9391
-    -- local proxy_id = hive.socket_connect(connect_addr, connect_port, proxy_m)
-    -- if not proxy_id then
-    --     exit_agent()
-    --     return
-    -- end
+    local proxy_id = hive.socket_connect(connect_addr, connect_port, proxy_m)
+    if not proxy_id then
+        exit_agent()
+        return
+    end
 
     --  response connect success
     local s = spack(">I1I1I1I1I1I1I1I1I2",
         0x05, 0, 0, 1,
-        127, 0, 0, 1, 9923)
-    print ("####", id, #s)
+        127, 0, 0, 1, 9923) -- use default ip and port
     hive.socket_send(id, s)
 
     while true do
         local s = socket_read()
         print(string.format("read %d from client", #s))
-        print("--------------")
-        print(s)
-        print("--------------")
         hive.socket_send(proxy_id, s)
     end
 end
 
 
 function Socket_M:on_recv(id, data)
-    print("on_recv data:", #data, coroutine.status(cur_co), cur_co)
     cur_buffer:push(data)
     hive.co_resume(cur_co)
 end
 
 function Socket_M:on_break(id)
     print("break connect from id:"..tostring(id))
+    hive.hive_free()
 end
 
 function Socket_M:on_error(id, data)
     print("on_error", id, data)
+    hive.socket_close(id)
+    hive.hive_free()
 end
 
 
-function M:on_recv(client_id)
+function M:on_recv(source, client_id)
     if SELF_NAME == "agent" then
-        hive.socket_attach(client_id, Socket_M)
-        assert(cur_co == false)
+        local ret = hive.socket_attach(client_id, Socket_M)
         cur_co = hive.co_new(resovle)
-        print("begin resume cur_co", cur_co)
         hive.co_resume(cur_co, client_id)
-        print("cur_co", cur_co, coroutine.status(cur_co))
     end
 end
-
-
-
-function Socket_M:on_break()
-    hive.hive_free()
-end
-
-
-function Socket_M:on_error()
-    hive.hive_free()
-end
-
 
 
 hive.hive_start(M)
