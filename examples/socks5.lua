@@ -12,6 +12,7 @@ function M:on_create()
         local id = hive.socket_listen("0.0.0.0", 9941, {
                 on_accept = function (_, client_id)
                     local agent_handle = hive.hive_create("examples/socks5.lua", "agent")
+                    print(string.format("accept client connect id:%s", client_id))
                     if agent_handle then
                         hive.hive_send(agent_handle, client_id)
                     else
@@ -182,7 +183,6 @@ local function resovle(id)
     end
 
     local connect_port = sunpack(">I2", socket_read(2))
-    print("connect:", connect_addr, connect_port)
 
     local proxy_m = {}
     function proxy_m:on_error(id)
@@ -204,6 +204,9 @@ local function resovle(id)
         return
     end
 
+    print(string.format("connect:  %s:%s  id:%s from client id:%s", 
+        connect_addr, connect_port, proxy_id, id))
+
     --  response connect success
     local s = spack(">I1I1I1I1I1I1I1I1I2",
         0x05, 0, 0, 1,
@@ -212,7 +215,7 @@ local function resovle(id)
 
     while true do
         local s = socket_read()
-        print(string.format("read %d from client", #s))
+        --print(string.format("read %d from client", #s))
         hive.socket_send(proxy_id, s)
     end
 end
@@ -229,7 +232,7 @@ function Socket_M:on_break(id)
 end
 
 function Socket_M:on_error(id, data)
-    print("on_error", id, data)
+    print(string.format("on_error: %s  id:%s",data, id))
     hive.socket_close(id)
     hive.hive_free()
 end
