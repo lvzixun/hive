@@ -674,6 +674,7 @@ _socket_do_recv(struct socket_mgr_state* state, struct socket* s) {
                 int len = snprintf((char*)state->_recv_data->data, MAX_RECV_BUFFER, "recv error[%d]: %s", err, strerror(err));
                 assert(len > 0);
                 _actor_notify_error(state, s, (size_t)(len+1));
+                _socket_remove(state, s);
                 break;
             }
         }else if (n == 0) {
