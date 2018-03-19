@@ -117,6 +117,7 @@ _lua_actor_dispatch(uint32_t source, uint32_t self, int type, int session, void*
                     break;
                 }
 
+                case SE_CONNECTED:
                 case SE_RECIVE:
                 case SE_ERROR:
                     lua_pushlstring(L, (const char*)sdata->data, sdata->u.size);
@@ -245,9 +246,16 @@ _lhive_socket_connect(lua_State* L) {
     const char* host = luaL_checkstring(L, 1);
     uint16_t port = (uint16_t)luaL_checkinteger(L, 2);
     struct actor_state* state = _self_state(L);
-    int id = hive_socket_connect(host, port, state->handle);
-    lua_pushinteger(L, id);
-    return 1;
+    const char* err_str = NULL;
+    int id = hive_socket_connect(host, port, state->handle, &err_str);
+    if (id<0) {
+        lua_pushboolean(L, false);
+        lua_pushstring(L, err_str);
+        return 2;
+    }else {
+        lua_pushinteger(L, id);
+        return 1;
+    }
 }
 
 
@@ -317,6 +325,7 @@ hive_lib(lua_State* L) {
     _set_const(L, "HIVE_TTIMER", HIVE_TTIMER);
     _set_const(L, "HIVE_TSOCKET", HIVE_TSOCKET);
     _set_const(L, "HIVE_TNORMAL", HIVE_TNORMAL);
+    _set_const(L, "SE_CONNECTED", SE_CONNECTED);
     _set_const(L, "SE_BREAK", SE_BREAK);
     _set_const(L, "SE_ACCEPT", SE_ACCEPT);
     _set_const(L, "SE_RECIVE", SE_RECIVE);

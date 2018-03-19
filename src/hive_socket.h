@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 enum socket_event {
+    SE_CONNECTED,
     SE_BREAK,
     SE_ACCEPT,
     SE_RECIVE,
@@ -22,7 +23,7 @@ struct socket_data {
 };
 
 
-int hive_socket_connect(const char* host, uint16_t port, uint32_t actor_handle);
+int hive_socket_connect(const char* host, uint16_t port, uint32_t actor_handle, char const** out_error);
 int hive_socket_listen(const char* host, uint16_t port, uint32_t actor_handle);
 int hive_socket_send(int id, const void* data, size_t size);
 int hive_socket_attach(int id, uint32_t actor_handle);

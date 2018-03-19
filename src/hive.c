@@ -144,12 +144,8 @@ hive_send(uint32_t source, uint32_t target, int type, int session, void* data, s
 
 // ---------------- hive socket api ----------------  
 int 
-hive_socket_connect(const char* host, uint16_t port, uint32_t actor_handle) {
-    const char* err_str = NULL;
-    int id = socket_mgr_connect(ENV.sm_state, host, port, &err_str, actor_handle);
-    if(id < 0) {
-        hive_printf("hive socket connect error[%d]:%s", id, err_str);
-    }
+hive_socket_connect(const char* host, uint16_t port, uint32_t actor_handle, char const** out_error) {
+    int id = socket_mgr_connect(ENV.sm_state, host, port, out_error, actor_handle);
     return id;
 }
 

@@ -107,7 +107,7 @@ static void _actor_notify_accept(int server_id, int client_id, uint32_t target_h
 static void _actor_notify_break(struct socket* s);
 static void _actor_notify_error(struct socket_mgr_state* state, struct socket* s, size_t size);
 static void _actor_notify_recv(struct socket_mgr_state* state, struct socket* s, size_t size);
-
+static void _actor_notify_connected(struct socket_mgr_state* state, struct socket* s, const char* err);
 
 struct socket_mgr_state*
 socket_mgr_create() {
@@ -692,8 +692,7 @@ static bool
 _socket_do_connect(struct socket_mgr_state* state, struct socket* s) {
     const char* error_str = _socket_check_error(s);
     if(error_str) {
-        strncpy((char*)state->_recv_data->data, error_str, MAX_RECV_BUFFER-1);
-        _actor_notify_error(state, s, strlen((char*)state->_recv_data->data)+1);
+        _actor_notify_connected(state, s, error_str);
         _socket_remove(state, s);
         return false;
     }else {
@@ -701,6 +700,7 @@ _socket_do_connect(struct socket_mgr_state* state, struct socket* s) {
         if(write_buffer_empty(s)) {
             sp_write(state->pfd, s->fd, s, false);
         }
+        _actor_notify_connected(state, s, NULL);
         return true;
     }
 }
@@ -739,6 +739,22 @@ _actor_notify_break(struct socket* s) {
     hive_send(SYS_HANDLE, s->actor_handle, HIVE_TSOCKET, s->id, (void*)&data, sizeof(data));
 }
 
+static void
+_actor_notify_connected(struct socket_mgr_state* state, struct socket* s, const char* err) {
+    if(err == NULL) {
+        struct socket_data data;
+        data.se = SE_CONNECTED;
+        data.u.size = 0;
+        hive_send(SYS_HANDLE, s->actor_handle, HIVE_TSOCKET, s->id, (void*)&data, sizeof(data));
+    } else {
+        strncpy((char*)state->_recv_data->data, err, MAX_RECV_BUFFER-1);
+        size_t size = strlen((char*)state->_recv_data->data)+1;
+        state->_recv_data->u.size = size;
+        state->_recv_data->se = SE_CONNECTED;
+        hive_send(SYS_HANDLE, s->actor_handle, HIVE_TSOCKET, s->id, (void*)state->_recv_data, sizeof(struct socket_data)+size);
+    }
+}
+
 
 static void
 _actor_notify_error(struct socket_mgr_state* state, struct socket* s, size_t size) {
@@ -775,6 +791,7 @@ _socket_request_ctrl(struct socket_mgr_state* state, struct request_package* msg
                 if(!write_buffer_empty(s)) {
                     sp_write(state->pfd, s->fd, s, true);
                 }
+                _actor_notify_connected(state, s, NULL);
             }else if(s->type == ST_CONNECTING) {
                 sp_write(state->pfd, s->fd, s, true);
             }
