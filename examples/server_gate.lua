@@ -1,4 +1,5 @@
 local hive = require "hive"
+local socket = require "hive.socket"
 
 local M = {}
 local Socket_M = {}
@@ -18,7 +19,7 @@ function M:on_create()
     local echo_idx = 1
     local echo_poll = {}
     for i=1,count do
-        echo_poll[i] = hive.hive_create("examples/echo.lua", "echo")
+        echo_poll[i] = hive.create("examples/echo.lua", "echo")
     end
     get_echo_actor = function ()
         local actor = echo_poll[echo_idx]
@@ -29,29 +30,14 @@ function M:on_create()
     -- open socket listen
     local ip = "127.0.0.1"
     local port = 9291
-    local id = hive.socket_listen(ip, port, Socket_M)
+    local id = socket.listen(ip, port, function (client_id)
+            local echo_actor = get_echo_actor()
+            print("on_accept!", client_id)
+            hive.send(echo_actor, client_id)
+        end)
+    assert(id >=0)
     print(string.format("listen %s:%s", ip, port))
 end
 
-
-function Socket_M:on_accept(client_id)
-    local echo_actor = get_echo_actor()
-    print("on_accept!", client_id)
-    hive.hive_send(echo_actor, client_id)
-end
-
-function Socket_M:on_break(id)
-    printf("### socket id:%s is break", id)
-end
-
-function Socket_M:on_error(id, data)
-    printf("### socket id:%s is error: %s", id, data)
-end
-
-function Socket_M:on_recv(id, data)
-    printf("### recive data:%s from socket id:%s", data, id)
-end
-
-
-hive.hive_start(M)
+hive.start(M)
 

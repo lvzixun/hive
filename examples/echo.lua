@@ -1,4 +1,6 @@
 local hive = require "hive"
+local socket = require "hive.socket"
+local thread = require "hive.thread"
 
 local M = {}
 local Socket_M = {}
@@ -20,27 +22,28 @@ local source = [[
     </html>
 ]]
 
-function Socket_M:on_recv(id, data)
-    hive.socket_send(id, source)
-    hive.socket_close(id)
-    local s = string.format("\nrecv:%s from socket id:%s by actor:%s\n", data, id, SELF_HANDLE)
-    print(s)
+
+function M:on_recv(_, client_id)
+    thread.run(function ()
+            socket.attach(client_id)
+            while true do
+                local s, err = socket.read(client_id)
+                if s and #s>0 then
+                    printf("\nrecv:%s from socket id:%s by actor:%s\n", s, client_id, SELF_HANDLE)
+                    socket.send(client_id, source)
+                    socket.close(client_id)
+                    break
+                elseif s and #s == 0 then
+                    printf("socket id:%s is break", client_id)
+                    break
+                else
+                    printf("s:%s error:%s", s, err)
+                    break
+                end
+            end
+        end)
 end
 
-function Socket_M:on_close(id)
-    print("close socket id", id)
-end
 
-
-function Socket_M:on_break(id)
-    printf("break socket id:%s by actor:%s", id, SELF_HANDLE)
-end
-
-
-function M:on_recv(source, client_id)
-    hive.socket_attach(client_id, Socket_M)
-end
-
-
-hive.hive_start(M)
+hive.start(M)
 
