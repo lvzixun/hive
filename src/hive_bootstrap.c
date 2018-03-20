@@ -118,6 +118,14 @@ _lua_actor_dispatch(uint32_t source, uint32_t self, int type, int session, void*
                 }
 
                 case SE_CONNECTED:
+                    if(sdata->u.size == 0) {
+                        lua_pushnil(L);
+                    }else {
+                        lua_pushlstring(L, (const char*)sdata->data, sdata->u.size);
+                    }
+                    n++;
+                    break;
+                    
                 case SE_RECIVE:
                 case SE_ERROR:
                     lua_pushlstring(L, (const char*)sdata->data, sdata->u.size);

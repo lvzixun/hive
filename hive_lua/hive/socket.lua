@@ -20,7 +20,7 @@ local socket_driver = {
         local entry = status_map[id]
         assert(entry.status == "connecting")
         local co = entry.co
-    
+
         if not data then    -- connect success
             entry.status = "forward"
             entry.buffer = new_buffer()
@@ -43,6 +43,10 @@ local socket_driver = {
 
     [SE_RECIVE] = function (id, data)
         local entry = status_map[id]
+        if not entry then
+            return
+        end
+
         local status = entry.status
         if status == "receive" then
             local buffer = entry.buffer
@@ -76,7 +80,7 @@ local socket_driver = {
             if status == "receive" then
                 local co = entry.co
                 status_map[id] = nil
-                return thread.resume(co, false, err)
+                return thread.resume(co, false, data)
             else
                 entry.status = "error"
                 entry.error = data
@@ -163,11 +167,12 @@ function M.read(id, size)
 
     if status == "forward" then
         local buffer = entry.buffer
-        local co = entry.co
         local data = buffer:pop(size)
         if not data then
             entry.status = "receive"
             entry.need_size = size
+            local co = thread.running()
+            entry.co = co
             return thread.yield(co)
         else
             return data
