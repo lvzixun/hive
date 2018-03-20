@@ -1,25 +1,37 @@
 local hive = require "hive"
+local socket = require "hive.socket"
+local thread = require "hive.thread"
+
+print("hello conn!")
+
 local M = {}
-local Socket_M = {}
 
+local source = [[
+GET / HTTP/1.1
+Host: baidu.com
+User-Agent: curl/7.54.0
+Accept: */*
 
-local function printf(f, ...)
-    local s = string.format(f, ...)
-    print(s)
-end
-
-
-function Socket_M:on_recv(id, data)
-    printf("### recive data:%s from socket id:%s", data, id)
-    hive.socket_send(id, "seek it!@!!")
-    hive.socket_close(id)
-end
-
+]]
 
 function M:on_create()
-    local id = hive.socket_connect("127.0.0.1", 9291, Socket_M)
-    print("hive_socket_connect", id)
+    thread.run(function ()
+            local host = "baidu.com"
+            local port = 80
+            local id, err = socket.connect(host, port)
+            assert(id, err)
+            socket.send(id, source)
+            while true do
+                local data, err = socket.read(id)
+                assert(data, err)
+                print(data)
+                if data == "" then
+                    print("connect break")
+                    break
+                end
+            end
+        end)
 end
 
 
-hive.hive_start(M)
+hive.start(M)

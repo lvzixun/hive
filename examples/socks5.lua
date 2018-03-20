@@ -1,4 +1,6 @@
 local hive = require "hive"
+local socket = require "hive.socket"
+local thread = require "hive.thread"
 local spack = string.pack
 local sunpack = string.unpack
 
@@ -9,129 +11,46 @@ local Socket_M = {}
 ----- socks5 server gate
 function M:on_create()
     if SELF_NAME ~= "agent" then
-        local id = hive.socket_listen("0.0.0.0", 9941, {
-                on_accept = function (_, client_id)
-                    local agent_handle = hive.hive_create("examples/socks5.lua", "agent")
-                    print(string.format("accept client connect id:%s", client_id))
-                    if agent_handle then
-                        hive.hive_send(agent_handle, client_id)
-                    else
-                        hive.socket_close(client_id)
-                    end
-                end,
-
-                on_error = function (_, id, err)
-                    local s = string.format("error:%s listen from id:%s", err, id)
-                    print(s)
+        local host = "0.0.0.0"
+        local port = 9941
+        local id, err = socket.listen(host, port, 
+            function (client_id)
+                local agent_handle = hive.create("examples/socks5.lua", "agent")
+                print(string.format("accept client connect id:%s", client_id))
+                if agent_handle then
+                    hive.send(agent_handle, client_id)
+                else
+                    socket.close(client_id)
                 end
-            })
-        print("socket_listen: 127.0.0.1:9941")
-        assert(id >= 0)
+            end)
+        assert(id, err)
+        print(string.format("socks5 listen: %s:%s", host, port))
     end
 end
 
 
------ buffer class -----
-local buffer_mt = {}
-buffer_mt.__index = buffer_mt
-local function new_buffer()
-    local raw = {
-        v_size = 0,
-        v_list = {},
-    }
-    return setmetatable(raw, buffer_mt)
-end
 
-function buffer_mt:push(s)
-    local list = self.v_list
-    list[#list+1] = s
-    self.v_size = self.v_size + #s
-end
-
-
-function buffer_mt:pop(max_count)
-    if self.v_size <= 0 then
-        return false
-    end
-
-    if  not max_count then
-        local list = self.v_list
-        local ret = table.concat(list)
-        self.v_size = 0
-        for i,v in ipairs(list) do
-            list[i] = nil
-        end
-        return ret
-    end
-
-    if max_count == 0 then
-        return ""
-    end
-
-    if self.v_size < max_count or max_count < 0 then
-        return false
-    end
-
-    local idx = 1
-    local ret = {}
-    local c = 0
-    local list = self.v_list
-    local count = #list
-    for i=1, count do
-        local s = list[i]
-        local len = #s
-        if c + len <= max_count then
-            ret[#ret+1] = s
-            c = c + len
-            idx = i + 1
-        else
-            local sub_len = max_count - c
-            local sub_s = string.sub(s, 1, sub_len)
-            local new_s = string.sub(s, sub_len+1, -1)
-            list[i] = new_s
-            ret[#ret+1] = sub_s
-            c = c + sub_len
-            idx = i
-        end
-
-        if c == max_count then
-            local new_list = {}
-            for i=idx, count do
-                new_list[#new_list+1] = list[i]
-            end
-            self.v_list = new_list
-            self.v_size = self.v_size - max_count
-            break
-        end
-    end
-
-    return table.concat(ret)
-end
-
-
-
------ socks5 auth and resovle
-local cur_buffer = new_buffer()
-local function socket_read(max_count)
-    local co = coroutine.running()
-
-    while true do
-        local s = cur_buffer:pop(max_count)
-        if not s then
-            hive.co_yield()
-        else
-            return s
-        end
-    end
-end
-
-
-local cur_co = false
 local function resovle(id)
     local function exit_agent()
-        hive.socket_close(id)
-        hive.hive_free()
+        socket.close(id)
+        hive.exit()
     end
+
+    local function socket_read(sz)
+        local data, err = socket.read(id, sz)
+        if not data then
+            hive.exit()
+            error(err)
+        elseif #data == 0 then
+            hive.exit()
+            error(string.format("id:%s socks5 connect break", id))
+        else
+            return data
+        end
+    end
+
+    -- attach socket id
+    socket.attach(id)
 
     -- client request
     local s = socket_read(2)
@@ -148,7 +67,7 @@ local function resovle(id)
 
     -- response
     local resp = spack(">I1I1", 0x05, 0x00)
-    local ret = hive.socket_send(id, resp)
+    local ret = socket.send(id, resp)
 
     -- resovle request
     s = socket_read(4)
@@ -184,24 +103,11 @@ local function resovle(id)
 
     local connect_port = sunpack(">I2", socket_read(2))
 
-    local proxy_m = {}
-    function proxy_m:on_error(id)
-        hive.socket_close(id)
-        exit_agent()
-    end
-
-    function proxy_m:on_break(id)
-       exit_agent() 
-    end
-
-    function proxy_m:on_recv(_, data)
-        hive.socket_send(id, data)
-    end
-
-    local proxy_id = hive.socket_connect(connect_addr, connect_port, proxy_m)
+    -- connect server
+    local proxy_id, err = socket.connect(connect_addr, connect_port)
     if not proxy_id then
         exit_agent()
-        return
+        error(err)
     end
 
     print(string.format("connect:  %s:%s  id:%s from client id:%s", 
@@ -211,40 +117,40 @@ local function resovle(id)
     local s = spack(">I1I1I1I1I1I1I1I1I2",
         0x05, 0, 0, 1,
         127, 0, 0, 1, 9923) -- use default ip and port
-    hive.socket_send(id, s)
+    socket.send(id, s)
 
-    while true do
-        local s = socket_read()
-        --print(string.format("read %d from client", #s))
-        hive.socket_send(proxy_id, s)
+    local function pipe(source_id, target_id)
+        while true do
+            local s, err = socket.read(source_id)
+            if not s then
+                socket.close(target_id)
+                hive.exit()
+                print(string.format("pip source:%s target:%s err:%s", source_id, target_id, err))
+                return
+            elseif #s == 0 then
+                print(string.format("server[%s] connect is break", proxy_id))
+                socket.close(target_id)
+                hive.exit()
+                return
+            else
+                socket.send(target_id, s)
+            end
+        end        
     end
-end
 
+    -- proxy to client
+    thread.run(pipe, proxy_id, id)
 
-function Socket_M:on_recv(id, data)
-    cur_buffer:push(data)
-    hive.co_resume(cur_co)
-end
-
-function Socket_M:on_break(id)
-    print("break connect from id:"..tostring(id))
-    hive.hive_free()
-end
-
-function Socket_M:on_error(id, data)
-    print(string.format("on_error: %s  id:%s",data, id))
-    hive.socket_close(id)
-    hive.hive_free()
+    -- client to proxy
+    thread.run(pipe, id, proxy_id)
 end
 
 
 function M:on_recv(source, client_id)
     if SELF_NAME == "agent" then
-        local ret = hive.socket_attach(client_id, Socket_M)
-        cur_co = hive.co_new(resovle)
-        hive.co_resume(cur_co, client_id)
+        thread.run(resovle, client_id)
     end
 end
 
 
-hive.hive_start(M)
+hive.start(M)
