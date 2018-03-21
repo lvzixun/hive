@@ -34,6 +34,10 @@ enum socket_type {
     _ST_COUNT,
 };
 
+#define SOCKET_OK    0
+#define SOCKET_CLOSE 1
+#define SOCKET_BREAK 2
+#define SOCKET_ERROR 3
 
 struct buffer_block {
     struct buffer_block* next;
@@ -65,6 +69,12 @@ struct socket_mgr_state {
 
     char _addr_buffer[2048];
     struct socket_data* _recv_data;
+
+    struct {
+        struct socket** slots;
+        size_t size;
+        size_t idx;
+    } prepare_close_sockets;
 };
 
 
@@ -119,6 +129,11 @@ socket_mgr_create() {
         return NULL;
     }
 
+    // init prepare close sockets queue
+    state->prepare_close_sockets.size = MAX_SP_EVENT;
+    state->prepare_close_sockets.idx = 0;
+    state->prepare_close_sockets.slots = (struct socket**)hive_malloc(sizeof(struct socket*)*state->prepare_close_sockets.size);
+
     state->_recv_data = (struct socket_data*)hive_malloc(sizeof(struct socket_data) + MAX_RECV_BUFFER);
     state->_recv_data->se = SE_RECIVE;
     state->_recv_data->u.size = 0;
@@ -170,6 +185,9 @@ socket_mgr_release(struct socket_mgr_state* state) {
 
     close(state->sendctrl_fd);
     close(state->recvctrl_fd);
+
+    // free prepare close socket
+    hive_free(state->prepare_close_sockets.slots);
 
     // free socket poll
     sp_release(state->pfd);
@@ -231,18 +249,40 @@ _socket_remove(struct socket_mgr_state* state, struct socket* s) {
         return;
     }
 
+    spinlock_lock(&s->lock);
     if(st != ST_PREPARE) {
         sp_del(state->pfd, fd);
     }
 
+    // printf("socket remove s:%p st:%d id:%d fd:%d\n", s, st, s->id, s->fd);
     int ret = close(fd);
     assert(ret == 0);
     _buffer_free(s);
-    s->type = ST_INVALID;
+    s->id = -1;
     s->actor_handle = SYS_HANDLE;
     s->fd = -1;
+    s->type = ST_INVALID;
+    spinlock_unlock(&s->lock);
 }
 
+static inline void
+_insert_close_socket(struct socket_mgr_state* state, struct socket* s) {
+    size_t size = state->prepare_close_sockets.size;
+    size_t idx = state->prepare_close_sockets.idx;
+    struct socket** slots = state->prepare_close_sockets.slots;
+    if(idx >= size) {
+        size *= 2;
+        slots = hive_realloc(slots, size);
+        state->prepare_close_sockets.slots = slots;
+        state->prepare_close_sockets.size = size;
+    }
+    slots[state->prepare_close_sockets.idx++] = s;
+}
+
+static inline void
+_clear_close_socket(struct socket_mgr_state* state) {
+    state->prepare_close_sockets.idx = 0;
+}
 
 static inline struct buffer_block*
 _buffer_new_block(const void* data, size_t size) {
@@ -330,6 +370,7 @@ _socket_listen(struct socket_mgr_state* state, const char* host, uint16_t port) 
     }
 
     s->type = ST_LISTEN;
+    // printf("set_socket s:%p id:%d old_fd:%d new_fd:%d\n", s, s->id, s->fd, fd);
     s->fd = fd;
     freeaddrinfo(ai_list);
     return s->id;
@@ -465,7 +506,6 @@ _socket_connect(struct socket_mgr_state* state, const char* host, uint16_t port,
         goto CONNECT_ERROR;
     }
 
-
     s->fd = fd;
     s->type = (status==0)?(ST_CONNECTED):(ST_CONNECTING);
     freeaddrinfo(ai_list);
@@ -503,7 +543,7 @@ socket_mgr_close(struct socket_mgr_state* state, int id) {
         return -1;
     }
     struct socket* s = get_socket(id);
-    if(!s || s->type == ST_INVALID || s->id != id) {
+    if(s->type == ST_INVALID || s->id != id) {
         return -2;
     }
     _request_close(state, id);
@@ -516,7 +556,7 @@ socket_mgr_attach(struct socket_mgr_state* state, int id, uint32_t actor_handle)
         return -1;
     }
     struct socket* s = get_socket(id);
-    if(!s || s->type != ST_PREPARE || s->id != id) {
+    if(s->type != ST_PREPARE || s->id != id) {
         return -2;
     }
     _request_attach(state, id, actor_handle);
@@ -540,7 +580,7 @@ socket_mgr_send(struct socket_mgr_state* state, int id, const void* data, size_t
     }
     struct socket* s = get_socket(id);
     enum socket_type st = s->type;
-    if(!s || (st != ST_FORWARD && st != ST_CONNECTING && st != ST_CONNECTED) || s->id != id) {
+    if((st != ST_FORWARD && st != ST_CONNECTING && st != ST_CONNECTED) || s->id != id) {
         return -2;
     }
 
@@ -553,9 +593,7 @@ socket_mgr_send(struct socket_mgr_state* state, int id, const void* data, size_t
 
         if(write_buffer_empty(s) && st == ST_FORWARD) {
             int fd = s->fd;
-            // printf("socket_mgr_send  fd:%d data:%p size:%d\n", fd, data, size);
             n = write(fd, data, size);
-            // printf("socket_mgr_send write n:%zd\n", n);
             if(n < 0) {
                 n = 0;
             }else if(n < size) {
@@ -587,7 +625,7 @@ _socket_do_send(struct socket_mgr_state* state, struct socket* s) {
         void* data = p->buffer + offset;
         size_t sz = p->sz - offset;
         int n = write(fd, data, sz);
-        // printf("socket fd:%d write data:%p size:%zd n:%d\n", fd, data, sz, n);
+        // printf("do_send s:%p id:%d fd:%d size:%zd n:%d\n", s, s->id, s->fd, sz, n);
         if(n<0) {
             break;
         }else if(n<sz) {
@@ -658,12 +696,14 @@ _socket_do_listen(struct socket_mgr_state* state, struct socket* s) {
 }
 
 
-static void
+static int
 _socket_do_recv(struct socket_mgr_state* state, struct socket* s) {
     int fd = s->fd;
+    int ret = SOCKET_OK;
+
     for(;;) {
         ssize_t n = read(fd, state->_recv_data->data, MAX_RECV_BUFFER);
-        // printf("_socket_do_recv fd:%d n:%zd\n", fd, n);
+        // printf("_socket_do_recv id:%d fd:%d n:%zd\n", s->id, fd, n);
         if(n < 0) {
             int err = errno;
             if(err == EAGAIN) {
@@ -673,18 +713,23 @@ _socket_do_recv(struct socket_mgr_state* state, struct socket* s) {
             }else {
                 int len = snprintf((char*)state->_recv_data->data, MAX_RECV_BUFFER, "recv error[%d]: %s", err, strerror(err));
                 assert(len > 0);
+                // printf("recv_error:%s s:%p id:%d fd:%d\n", (char*)state->_recv_data->data, s, s->id, s->fd);
                 _actor_notify_error(state, s, (size_t)(len+1));
                 _socket_remove(state, s);
+                ret = SOCKET_ERROR;
                 break;
             }
         }else if (n == 0) {
             _actor_notify_break(s);
+            // printf("recv_break s:%p id:%d fd:%d\n", s, s->id, s->fd);
             _socket_remove(state, s);
+            ret = SOCKET_BREAK;
             break;
         }else {
             _actor_notify_recv(state, s, (size_t)n);
         }
     }
+    return ret;
 }
 
 
@@ -776,8 +821,15 @@ _actor_notify_accept(int server_id, int client_id, uint32_t target_handle) {
 static int
 _socket_request_ctrl(struct socket_mgr_state* state, struct request_package* msg) {
     enum request_type type = msg->type;
-    struct socket* s = get_socket(msg->socket_id);
+    int id = msg->socket_id;
+    struct socket* s = get_socket(id);
 
+    // invalid socket id
+    if(s->type == ST_INVALID || s->id != id) {
+        return SOCKET_OK;
+    }
+
+    // printf("request_ctrl s:%p id:%d fd:%d type:%d\n", s, s->id, s->fd, type);
     switch(type) {
         case REQ_LISTEN: {
             sp_add(state->pfd, s->fd, s);
@@ -806,10 +858,9 @@ _socket_request_ctrl(struct socket_mgr_state* state, struct request_package* msg
         }
 
         case REQ_CLOSE: {
-            spinlock_lock(&s->lock);
             _socket_remove(state, s);
-            spinlock_unlock(&s->lock);
-            break;
+            _insert_close_socket(state, s);
+            return SOCKET_CLOSE;
         }
 
         case REQ_SEND: {
@@ -833,7 +884,7 @@ _socket_request_ctrl(struct socket_mgr_state* state, struct request_package* msg
         }
     }
 
-    return 0;
+    return SOCKET_OK;
 }
 
 
@@ -857,16 +908,30 @@ _socket_do_ctrl(struct socket_mgr_state* state) {
             hive_panic("socket pip control read request len is 0");
         }else if (n == PKG_SIZE) {
             int ret = _socket_request_ctrl(state, &msg);
-            if(ret < 0) {
+            if(ret != SOCKET_OK) {
                 return ret;
             }
         }else {
             hive_panic("socket pip control read request lens: %d is invalid", n);
         }
     }
-    return 0;
+    return SOCKET_OK;
 }
 
+
+static void
+_socket_event_clear(struct socket_mgr_state* state, int idx, int n, struct socket* close_s) {
+    int i;
+    for(i=idx+1; i<n; i++) {
+        struct event* e = &(state->sp_event[i]);
+        struct socket* s = (struct socket*)e->s;
+        if(s == close_s) {
+            e->s = NULL;
+            e->write = false;
+            e->read = false;
+        }
+    }
+}
 
 int
 socket_mgr_update(struct socket_mgr_state* state) {
@@ -875,22 +940,57 @@ socket_mgr_update(struct socket_mgr_state* state) {
         hive_panic("socket_mgr update sp_wait error:%d\n", n);
     }
 
-    bool has_request = false;
-    int i;
-    for(i=0; i<n; i++) {
-        struct event* e = &(state->sp_event[i]);
+    /* // for teset kqueue and epoll
+    {
+        int i, j;
+        for(i=0; i<n; i++) {
+            struct event* e1 = &(state->sp_event[i]);
+            struct socket* s1 = (struct socket*)e1->s;
+            for(j=0; j<n; j++) {
+                if(i == j) continue;
+                struct event* e2 = &(state->sp_event[j]);
+                struct socket* s2 = (struct socket*)e2->s;
+                if(s1 == s2) {
+                    printf("duplicate_event [%d] read:%d write:%d --> [%d] read:%d write:%d\n",
+                        i, e1->read, e1->write, j, e2->read, e2->write);
+                }
+            }
+        }
+    }
+    */
+
+    int idx;
+    for(idx=0; idx<n; idx++) {
+        struct event* e = &(state->sp_event[idx]);
         struct socket* s = (struct socket*)e->s;
-        // printf("[%d] count:%d event:%p s:%p id:%d read:%d write:%d\n", i, n, e, s, 
-        //     (s)?(s->id):(-1), e->read, e->write);
-        // marke control request
+        // printf("[%d] count:%d event:%p s:%p id:%d fd:%d read:%d write:%d\n", idx, n, e, s, 
+        //     (s)?(s->id):(-1), (s)?(s->fd):(-1), e->read, e->write);
+
+        // pipe control request event
         if(s == NULL) {
             if(e->error) {
                 hive_panic("socket pipe control is error.");
+            }else if(e->read) {
+                _clear_close_socket(state);
+                int ret = _socket_do_ctrl(state);
+                if(ret < 0) {
+                    _clear_close_socket(state);
+                    return ret;
+                }else if(ret == SOCKET_CLOSE) {
+                    // remove closed socket
+                    size_t i;
+                    for(i=0; i<state->prepare_close_sockets.idx; i++) {
+                        struct socket* close_s = state->prepare_close_sockets.slots[i];
+                        _socket_event_clear(state, idx, n, close_s);
+                    }
+                }else if(ret != SOCKET_OK){
+                    hive_panic("invalid socket ctrl type:%d", ret);
+                }
+                _clear_close_socket(state);
+                continue;
+            }else {
+                continue;
             }
-
-            assert(e->read);
-            has_request = true;
-            continue;
         }
 
         // socket event
@@ -899,9 +999,39 @@ socket_mgr_update(struct socket_mgr_state* state) {
         // check socket connect
         if (s->type == ST_CONNECTING) {
             if(!_socket_do_connect(state, s)) {
-                break;
+                #ifdef USE_KQUEUE
+                    _socket_event_clear(state, idx, n, s);
+                #endif
+                continue;
             }
             stype = s->type;
+        }
+
+        if(e->read) {
+            switch(stype) {
+                case ST_LISTEN: {
+                    _socket_do_listen(state, s);
+                    break;
+                }
+
+                case ST_FORWARD: {
+                    int ret = _socket_do_recv(state, s);
+                    if(ret != SOCKET_OK) {
+                        #ifdef USE_KQUEUE
+                            _socket_event_clear(state, idx, n, s);
+                        #endif
+                        if(e->write) {
+                            continue;
+                        }
+                    }
+                    break;
+                }
+
+                default:{
+                    hive_panic("invalid  socket type: %d recv read event.", stype);
+                    break;
+                }   
+            }
         }
 
         if(e->write) {
@@ -924,25 +1054,6 @@ socket_mgr_update(struct socket_mgr_state* state) {
             }
         }
 
-        if(e->read) {
-            switch(stype) {
-                case ST_LISTEN: {
-                    _socket_do_listen(state, s);
-                    break;
-                }
-
-                case ST_FORWARD: {
-                    _socket_do_recv(state, s);
-                    break;
-                }
-
-                default:{
-                    hive_panic("invalid  socket type: %d recv read event.", stype);
-                    break;
-                }   
-            }
-        }
-
         if(e->error) {
             const char* error_str = _socket_check_error(s);
             if(error_str == NULL) {
@@ -950,14 +1061,10 @@ socket_mgr_update(struct socket_mgr_state* state) {
             }
             strncpy((char*)state->_recv_data->data, error_str, MAX_RECV_BUFFER-1);
             _actor_notify_error(state, s, strlen((char*)state->_recv_data->data)+1);
-        }
-    }
-
-    // pip control request event
-    if(has_request) {
-        int ret = _socket_do_ctrl(state);
-        if(ret < 0){
-            return ret;
+            _socket_remove(state, s);
+            #ifdef USE_KQUEUE
+                _socket_event_clear(state, idx, n, s);
+            #endif
         }
     }
 
