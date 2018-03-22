@@ -738,7 +738,7 @@ _socket_do_recv(struct socket_mgr_state* state, struct socket* s) {
             }else {
                 int len = snprintf((char*)state->_recv_data->data, MAX_RECV_BUFFER, "recv error[%d]: %s", err, strerror(err));
                 assert(len > 0);
-                // printf("recv_error:%s s:%p id:%d fd:%d\n", (char*)state->_recv_data->data, s, s->id, s->fd);
+                printf("recv_error:%s s:%p id:%d fd:%d\n", (char*)state->_recv_data->data, s, s->id, s->fd);
                 _actor_notify_error(state, s, (size_t)(len+1));
                 _socket_remove(state, s);
                 ret = SOCKET_ERROR;
@@ -1022,12 +1022,16 @@ socket_mgr_update(struct socket_mgr_state* state) {
         // socket event
         enum socket_type stype = s->type;
 
+        // check kqueue eof event
+        if (e->eof) {
+            _actor_notify_break(s);
+            _socket_remove(state, s);
+            continue;
+        }
+
         // check socket connect
         if (s->type == ST_CONNECTING) {
             if(!_socket_do_connect(state, s)) {
-                #ifdef USE_KQUEUE
-                    _socket_event_clear(state, idx, n, s);
-                #endif
                 continue;
             }
             stype = s->type;
@@ -1042,13 +1046,8 @@ socket_mgr_update(struct socket_mgr_state* state) {
 
                 case ST_FORWARD: {
                     int ret = _socket_do_recv(state, s);
-                    if(ret != SOCKET_OK) {
-                        #ifdef USE_KQUEUE
-                            _socket_event_clear(state, idx, n, s);
-                        #endif
-                        if(e->write) {
-                            continue;
-                        }
+                    if(ret != SOCKET_OK && e->write) {
+                        continue;
                     }
                     break;
                 }
@@ -1088,9 +1087,6 @@ socket_mgr_update(struct socket_mgr_state* state) {
             strncpy((char*)state->_recv_data->data, error_str, MAX_RECV_BUFFER-1);
             _actor_notify_error(state, s, strlen((char*)state->_recv_data->data)+1);
             _socket_remove(state, s);
-            #ifdef USE_KQUEUE
-                _socket_event_clear(state, idx, n, s);
-            #endif
         }
     }
 

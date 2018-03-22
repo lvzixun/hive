@@ -76,7 +76,8 @@ sp_wait(int kfd, struct event *e, int max) {
 		unsigned filter = ev[i].filter;
 		e[i].write = (filter == EVFILT_WRITE);
 		e[i].read = (filter == EVFILT_READ);
-		e[i].error = false;	// kevent has not error event
+		e[i].error = (ev[i].flags & EV_ERROR) != 0;
+		e[i].eof = (ev[i].flags & EV_EOF) != 0;
 	}
 
 	return n;

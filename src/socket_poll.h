@@ -7,6 +7,7 @@ typedef int poll_fd;
 
 struct event {
 	void * s;
+    bool eof;
 	bool read;
 	bool write;
 	bool error;
@@ -22,12 +23,10 @@ static int sp_wait(poll_fd, struct event *e, int max);
 static void sp_nonblocking(int sock);
 
 #ifdef __linux__
-#define USE_EPOLL
 #include "socket_epoll.h"
 #endif
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined (__NetBSD__)
-#define USE_KQUEUE
 #include "socket_kqueue.h"
 #endif
 
