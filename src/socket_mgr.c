@@ -113,6 +113,8 @@ static void _socket_free(struct socket* s);
 static void _buffer_free(struct socket* s);
 static const char* _socket_check_error(struct socket* s);
 
+static int _socket_getaddr(struct socket_mgr_state* state, struct socket* s, struct socket_addrinfo* out_addrinfo, const char** out_error);
+
 static void _actor_notify_accept(int server_id, int client_id, uint32_t target_handle);
 static void _actor_notify_break(struct socket* s);
 static void _actor_notify_error(struct socket_mgr_state* state, struct socket* s, size_t size);
@@ -550,6 +552,7 @@ socket_mgr_close(struct socket_mgr_state* state, int id) {
     return 0;
 }
 
+
 int
 socket_mgr_attach(struct socket_mgr_state* state, int id, uint32_t actor_handle) {
     if(id < 0) {
@@ -572,6 +575,27 @@ socket_mgr_exit(struct socket_mgr_state* state) {
     _request_send(state, &msg);
 }
 
+
+int
+socket_mgr_addrinfo(struct socket_mgr_state* state, int id, struct socket_addrinfo* out_addrinfo, const char** out_error) {
+    if(id <0) {
+        return -1;
+    }
+
+    struct socket* s = get_socket(id);
+    if(s->type == ST_INVALID || s->id != id) {
+        return -2;
+    }
+
+    spinlock_lock(&s->lock);
+    if(s->id != id) {
+        spinlock_unlock(&s->lock);
+        return -2;
+    }
+    int err = _socket_getaddr(state, s, out_addrinfo, out_error);
+    spinlock_unlock(&s->lock);
+    return err;
+}
 
 int
 socket_mgr_send(struct socket_mgr_state* state, int id, const void* data, size_t size) {
@@ -647,25 +671,27 @@ _socket_do_send(struct socket_mgr_state* state, struct socket* s) {
 }
 
 
-static char*
-_socket_getaddr(struct socket_mgr_state* state, struct socket* s) {
+static int
+_socket_getaddr(struct socket_mgr_state* state, struct socket* s, struct socket_addrinfo* out_addrinfo, const char** out_error) {
     int fd = s->fd;
     struct sockaddr addr;
-    socklen_t len;
+    socklen_t len = sizeof(addr);
     int err = getsockname(fd, &addr, &len);
     if(err < 0) {
-        return NULL;
+        *out_error = strerror(errno);
+        return 1;
     }
 
-    char ip[NI_MAXHOST];
-    char port[NI_MAXSERV];
-    err = getnameinfo(&addr, len, ip, sizeof(ip), port, sizeof(port), NI_NUMERICHOST | NI_NUMERICSERV);
-    if(err < 0) {
-        return NULL;
+    char str_port[NI_MAXSERV];
+    err = getnameinfo(&addr, len, out_addrinfo->ip, sizeof(out_addrinfo->ip), 
+        str_port, sizeof(str_port), NI_NUMERICHOST | NI_NUMERICSERV);
+    if(err != 0) {
+        *out_error = gai_strerror(err);
+        return 1;
     }
-
-    snprintf(state->_addr_buffer, sizeof(state->_addr_buffer), "%s:%s", ip, port);
-    return state->_addr_buffer;
+    
+    out_addrinfo->port = atoi(str_port);
+    return 0;
 }
 
 
@@ -680,7 +706,6 @@ _socket_do_listen(struct socket_mgr_state* state, struct socket* s) {
         return;
     }
 
-    ((void)_socket_getaddr); // unused 
     struct socket* cs = _socket_gen(state);
     if(cs == NULL) {
         sm_log("socket id poll is full.");
@@ -932,6 +957,7 @@ _socket_event_clear(struct socket_mgr_state* state, int idx, int n, struct socke
         }
     }
 }
+
 
 int
 socket_mgr_update(struct socket_mgr_state* state) {

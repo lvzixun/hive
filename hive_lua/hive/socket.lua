@@ -214,7 +214,9 @@ function M.attach(id)
     return c.hive_socket_attach(id, SELF_HANDLE)
 end
 
-
+function M.addrinfo(id)
+    return c.hive_socket_addrinfo(id)
+end
 
 return M
 

@@ -267,6 +267,28 @@ _lhive_socket_connect(lua_State* L) {
 }
 
 
+static int
+_lhive_socket_addrinfo(lua_State* L) {
+    int id = luaL_checkinteger(L, 1);
+    struct socket_addrinfo addrinfo;
+    const char* out_err = NULL;
+    int err = hive_socket_addrinfo(id, &addrinfo, &out_err);
+    if(err == 0) {
+        lua_pushstring(L, addrinfo.ip);
+        lua_pushinteger(L, addrinfo.port);
+        return 2;
+    }else if (err > 0) {
+        lua_pushboolean(L, 0);
+        lua_pushstring(L, out_err);
+        return 2;
+    }else {
+        lua_pushboolean(L, 0);
+        lua_pushfstring(L, "addrinfo error[%d]", err);
+        return 2;
+    }
+    return 0;
+}
+
 
 static int
 _lhive_socket_listen(lua_State* L) {
@@ -321,6 +343,7 @@ hive_lib(lua_State* L) {
 
         {"hive_socket_connect", _lhive_socket_connect},
         {"hive_socket_listen", _lhive_socket_listen},
+        {"hive_socket_addrinfo", _lhive_socket_addrinfo},
         {"hive_socket_attach", _lhive_socket_attach},
         {"hive_socket_send", _lhive_socket_send},
         {"hive_socket_close", _lhive_socket_close},

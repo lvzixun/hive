@@ -15,6 +15,7 @@ int socket_mgr_listen(struct socket_mgr_state* state, const char* host, uint16_t
 int socket_mgr_send(struct socket_mgr_state* state, int id, const void* data, size_t size);
 int socket_mgr_close(struct socket_mgr_state* state, int id);
 int socket_mgr_attach(struct socket_mgr_state* state, int id, uint32_t actor_handle);
+int socket_mgr_addrinfo(struct socket_mgr_state* state, int id, struct socket_addrinfo* out_addrinfo, const char** out_error);
 
 int socket_mgr_update(struct socket_mgr_state* state);
 

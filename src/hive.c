@@ -160,6 +160,10 @@ hive_socket_send(int id, const void* data, size_t size) {
     return socket_mgr_send(ENV.sm_state, id, data, size);
 }
 
+int
+hive_socket_addrinfo(int id, struct socket_addrinfo* out_addrinfo, const char** out_error) {
+    return socket_mgr_addrinfo(ENV.sm_state, id, out_addrinfo, out_error);
+}
 
 int
 hive_socket_close(int id) {
