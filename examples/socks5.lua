@@ -16,7 +16,8 @@ function M:on_create()
         local id, err = socket.listen(host, port, 
             function (client_id)
                 local agent_handle = hive.create("examples/socks5.lua", "agent")
-                print(string.format("accept client connect id:%s", client_id))
+                local host, port = socket.addrinfo(client_id)
+                print(string.format("[accept] %s:%s", host, port))
                 if agent_handle then
                     hive.send(agent_handle, client_id)
                 else
@@ -110,25 +111,47 @@ local function resovle(id)
         error(err)
     end
 
-    print(string.format("connect:  %s:%s  id:%s from client id:%s", 
-        connect_addr, connect_port, proxy_id, id))
+    local proxy_host, proxy_port = socket.addrinfo(proxy_id)
+    print(string.format("[connect] %s:%s from %s:%s", 
+        connect_addr, connect_port,
+        proxy_host, proxy_port))
 
+    local proxy_host_t = {}
+    for v in string.gmatch(proxy_host, "[^%.]+") do
+        proxy_host_t[#proxy_host_t+1] = tonumber(v)
+    end
+    
     --  response connect success
     local s = spack(">I1I1I1I1I1I1I1I1I2",
         0x05, 0, 0, 1,
-        127, 0, 0, 1, 9923) -- use default ip and port
+        proxy_host_t[1], proxy_host_t[2], proxy_host_t[3], proxy_host_t[4], 
+        proxy_port) -- use default ip and port
     socket.send(id, s)
+
+    local client_host, client_port = socket.addrinfo(id)
+    local addrinfo_map = {
+        [proxy_id] = {
+            host = proxy_host,
+            port = proxy_port,
+        },
+
+        [id] = {
+            host = client_host,
+            port = client_port,
+        }
+    }
 
     local function pipe(source_id, target_id)
         while true do
             local s, err = socket.read(source_id)
+            local addr = addrinfo_map[source_id]
             if not s then
                 socket.close(target_id)
                 hive.exit()
-                print(string.format("pip source:%s target:%s err:%s", source_id, target_id, err))
+                print(string.format("[error] %s:%s error:%s",addr.host, addr.port, err))
                 return
             elseif #s == 0 then
-                print(string.format("server[%s] connect is break", proxy_id))
+                print(string.format("[break] %s:%s", addr.host, addr.port))
                 socket.close(target_id)
                 hive.exit()
                 return
