@@ -18,8 +18,10 @@ read actors lua source code in [examples](https://github.com/lvzixun/hive/tree/m
 [examples/socks5.lua](https://github.com/lvzixun/hive/blob/master/examples/socks5.lua) is a simple socks5 proxy server. only support no authentication method.
 
 [hive_lua/hive.lua](https://github.com/lvzixun/hive/blob/master/hive_lua/hive.lua) implements the actor interface.
+
 [hive_lua/hive/socket.lua](https://github.com/lvzixun/hive/blob/master/hive_lua/hive/socket.lua) implements socket operation inreface (use coroutine wrap).
-[hive_lua/hive/thread.lua](https://github.com/lvzixun/hive/blob/master/hive_lua/hive/thread.lua) lua coroutine wrap.
+
+[hive_lua/hive/thread.lua](https://github.com/lvzixun/hive/blob/master/hive_lua/hive/thread.lua) implements lua coroutine wrap.
 
 ### actor api
 | api name | description |
