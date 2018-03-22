@@ -738,7 +738,7 @@ _socket_do_recv(struct socket_mgr_state* state, struct socket* s) {
             }else {
                 int len = snprintf((char*)state->_recv_data->data, MAX_RECV_BUFFER, "recv error[%d]: %s", err, strerror(err));
                 assert(len > 0);
-                printf("recv_error:%s s:%p id:%d fd:%d\n", (char*)state->_recv_data->data, s, s->id, s->fd);
+                // printf("recv_error:%s s:%p id:%d fd:%d\n", (char*)state->_recv_data->data, s, s->id, s->fd);
                 _actor_notify_error(state, s, (size_t)(len+1));
                 _socket_remove(state, s);
                 ret = SOCKET_ERROR;
