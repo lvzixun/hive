@@ -1,6 +1,7 @@
 #include "hive.h"
 #include "hive_socket.h"
 
+#include "actor_log.h"
 #include "hive_memory.h"
 #include "hive_log.h"
 #include <string.h>
@@ -19,9 +20,7 @@ struct actor_state {
 #define HIVE_LUA_STATE  "__hive_state__"
 #define HIVE_LUA_TRACEBACK "__hive_debug_traceback__"
 #define HIVE_ACTOR_NAME "__hive_actor_name__"
-
 #define HIVE_ACTOR_METHOD_DISPATCH "hive_dispatch"
-#define bs_log(...) hive_elog("hive bootstrap", __VA_ARGS__)
 
 static int hive_lib(lua_State* L);
 static void _register_lib(lua_State* L);
@@ -73,7 +72,7 @@ _throw_error(lua_State* L, lua_State* NL, int ret) {
     const char* err = lua_tostring(NL, -1);
     size_t sz = strlen(err) + 64;
     char* err_buff = (char*)hive_malloc(sz);
-    snprintf(err_buff, sz, "hive register actor error:[%d] %s\n", ret, err);
+    snprintf(err_buff, sz, "LUA_ERROR:[%d] %s\n", ret, err);
     if(!L) {
         hive_panic("bootstrap actor is error:%s", err_buff);
     }
@@ -142,7 +141,7 @@ _lua_actor_dispatch(uint32_t source, uint32_t self, int type, int session, void*
 
     int ret = lua_pcall(L, n, 0, top+1);
     if(ret != LUA_OK) {
-        bs_log("hive actor dispatch error:[%d] %s\n", ret, lua_tostring(L, -1));
+        actor_log_send(self, HIVE_LOG_ERR, lua_tostring(L, -1));
     }
     lua_settop(L, top);
 
@@ -330,6 +329,15 @@ _lhive_socket_close(lua_State* L) {
     return 1;
 }
 
+static int
+_lhive_log(lua_State* L) {
+    struct actor_state* state = _self_state(L);
+    int level = luaL_checkinteger(L, 1);
+    const char* s = luaL_checkstring(L, 2);
+    actor_log_send(state->handle, level, s);
+    return 0;
+}
+
 
 static int
 hive_lib(lua_State* L) {
@@ -339,6 +347,7 @@ hive_lib(lua_State* L) {
         {"hive_start", _lhive_start},
         {"hive_exit", _lhive_exit},
         {"hive_send", _lhive_send},
+        {"hive_log", _lhive_log},
         {"hive_name", _lhive_name},
 
         {"hive_socket_connect", _lhive_socket_connect},
@@ -361,6 +370,9 @@ hive_lib(lua_State* L) {
     _set_const(L, "SE_ACCEPT", SE_ACCEPT);
     _set_const(L, "SE_RECIVE", SE_RECIVE);
     _set_const(L, "SE_ERROR", SE_ERROR);
+    _set_const(L, "HIVE_LOG_DBG", HIVE_LOG_DBG);
+    _set_const(L, "HIVE_LOG_INF", HIVE_LOG_INF);
+    _set_const(L, "HIVE_LOG_ERR", HIVE_LOG_ERR);
     return 1;
 }
 

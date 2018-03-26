@@ -3,10 +3,13 @@
 #include <stdlib.h>
 
 
-// #define format2buffer(f) va_list args; \
-//     va_start(args, f); \
-//     char buffer[256] = {0}; \
-//     vsnprintf(buffer, sizeof(buffer)-1, f, args); 
+/*
+#define format2buffer(f) va_list args; \
+    va_start(args, f); \
+    char buffer[256] = {0}; \
+    vsnprintf(buffer, sizeof(buffer)-1, f, args); 
+*/
+
 
 void
 hive_elog(const char* tag, const char* f, ...) {
@@ -33,6 +36,7 @@ void
 hive_panic(const char* f, ...) {
     va_list args;
     va_start(args, f);
+    fputs("[PANIC] ", stderr);
     vfprintf(stderr, f, args);
     fprintf(stderr, "\n");
     fflush(stderr);

@@ -12,6 +12,7 @@
 #include "hive_bootstrap.h"
 #include "hive_log.h"
 #include "socket_mgr.h"
+#include "actor_log.h"
 
 #define unused(v)  ((void)v)
 
@@ -179,7 +180,10 @@ int
 main(int argc, char const *argv[]) {
     hive_init();
 
-    // start bootstrap actor
+    // start logger actor
+    actor_log_init(NULL);
+
+    // start bootstrap
     hive_bootstrap_init((argc>1)?(argv[1]):(NULL));
 
     hive_start();
