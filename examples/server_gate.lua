@@ -1,16 +1,12 @@
 local hive = require "hive"
 local socket = require "hive.socket"
+local hive_log = require "hive.log"
 
 local M = {}
 local Socket_M = {}
 
-print("hello server_gate!")
+hive_log.log("hello server_gate!")
 
-
-local function printf(f, ...)
-    local s = string.format(f, ...)
-    print(s)
-end
 
 
 local get_echo_actor = nil
@@ -32,11 +28,11 @@ function M:on_create()
     local port = 9291
     local id = socket.listen(ip, port, function (client_id)
             local echo_actor = get_echo_actor()
-            print("on_accept!", client_id)
+            hive_log.log("on_accept!", client_id)
             hive.send(echo_actor, client_id)
         end)
     assert(id >=0)
-    print(string.format("listen %s:%s", ip, port))
+    hive_log.logf("listen %s:%s", ip, port)
 end
 
 hive.start(M)

@@ -1,6 +1,7 @@
 local hive = require "hive"
 local socket = require "hive.socket"
 local thread = require "hive.thread"
+local hive_log = require "hive.log"
 local spack = string.pack
 local sunpack = string.unpack
 
@@ -17,7 +18,7 @@ function M:on_create()
             function (client_id)
                 local agent_handle = hive.create("examples/socks5.lua", "agent")
                 local host, port = socket.addrinfo(client_id)
-                print(string.format("[accept] %s:%s", host, port))
+                hive_log.logf("[accept] %s:%s", host, port)
                 if agent_handle then
                     hive.send(agent_handle, client_id)
                 else
@@ -25,7 +26,7 @@ function M:on_create()
                 end
             end)
         assert(id, err)
-        print(string.format("socks5 listen: %s:%s", host, port))
+        hive_log.logf("socks5 listen: %s:%s", host, port)
     end
 end
 
@@ -112,9 +113,9 @@ local function resovle(id)
     end
 
     local proxy_host, proxy_port = socket.addrinfo(proxy_id)
-    print(string.format("[connect] %s:%s from %s:%s", 
+    hive_log.logf("[connect] %s:%s from %s:%s", 
         connect_addr, connect_port,
-        proxy_host, proxy_port))
+        proxy_host, proxy_port)
 
     local proxy_host_t = {}
     for v in string.gmatch(proxy_host, "[^%.]+") do
@@ -148,10 +149,10 @@ local function resovle(id)
             if not s then
                 socket.close(target_id)
                 hive.exit()
-                print(string.format("[error] %s:%s error:%s",addr.host, addr.port, err))
+                hive_log.logf("[error] %s:%s error:%s",addr.host, addr.port, err)
                 return
             elseif #s == 0 then
-                print(string.format("[break] %s:%s", addr.host, addr.port))
+                hive_log.logf("[break] %s:%s", addr.host, addr.port)
                 socket.close(target_id)
                 hive.exit()
                 return

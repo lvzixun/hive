@@ -1,6 +1,7 @@
 local hive = require "hive"
+local hive_log = require "hive.log"
 
-print("hello bootstrap!")
+hive_log.log("hello bootstrap!")
 
 local M = {}
 

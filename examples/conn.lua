@@ -1,8 +1,10 @@
 local hive = require "hive"
 local socket = require "hive.socket"
 local thread = require "hive.thread"
+local hive_log = require "hive.log"
 
-print("hello conn!")
+
+hive_log.log("hello conn!")
 
 local M = {}
 
@@ -24,9 +26,9 @@ function M:on_create()
             while true do
                 local data, err = socket.read(id)
                 assert(data, err)
-                print(data)
+                hive_log.log(data)
                 if data == "" then
-                    print("connect break")
+                    hive_log.log("connect break")
                     break
                 end
             end
