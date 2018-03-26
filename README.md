@@ -39,5 +39,6 @@ read actors lua source code in [examples](https://github.com/lvzixun/hive/tree/m
 | `socket.listen(host, port, on_accept_func)`| listen `host`:`port` address `on_accept_func` is accept event callback |
 | `socket.read(id [, size])` | read data from socket id |
 | `socket.send(id, data)`| send socket data to id |
+| `socket.addrinfo(id)` | get host and port from socket id |
 | `socket.attach(id)`| start accpet socket event |
 | `socket.close(id)`| close socket id |
