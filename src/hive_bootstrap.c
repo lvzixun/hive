@@ -10,6 +10,8 @@
 #include <lualib.h>
 #include <assert.h>
 
+#include "lhive_buffer.h"
+
 
 struct actor_state {
     lua_State* L;
@@ -396,6 +398,9 @@ _register_lib(lua_State* L) {
 
     // register hive lib
     reg_lua_lib(L, hive_lib, "hive.c");
+
+    // register base lib
+    reg_lua_lib(L, lhive_luaopen_buffer, "buffer.c");
 }
 
 

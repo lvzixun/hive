@@ -1,6 +1,7 @@
 local c = require "hive.c"
 local thread = require "hive.thread"
-local new_buffer = require "hive.buffer"
+local buffer = require "buffer.c"
+local new_buffer = buffer.create
 
 local HIVE_TSOCKET = c.HIVE_TSOCKET
 

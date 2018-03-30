@@ -846,7 +846,12 @@ _actor_notify_accept(int server_id, int client_id, uint32_t target_handle) {
 static int
 _socket_request_ctrl(struct socket_mgr_state* state, struct request_package* msg) {
     enum request_type type = msg->type;
+    if(type == REQ_EXIT) {
+        return -1;
+    }
+
     int id = msg->socket_id;
+    assert(id >= 0);
     struct socket* s = get_socket(id);
 
     // invalid socket id
@@ -896,11 +901,6 @@ _socket_request_ctrl(struct socket_mgr_state* state, struct request_package* msg
                 _buffer_append(s, block);
                 sp_write(state->pfd, s->fd, s, true);
             }
-            break;
-        }
-
-        case REQ_EXIT: {
-            return -1;
             break;
         }
 
