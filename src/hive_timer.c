@@ -6,6 +6,7 @@
 
 #include "hive_memory.h"
 
+
 struct user_data {
     int session;
     uint32_t handle;
@@ -24,11 +25,11 @@ struct timer_list {
 
 #define NEAR_SHIFT 8
 #define NEAR       (1<<NEAR_SHIFT)
-#define NEAR_MASK  (1-NEAR)
+#define NEAR_MASK  (NEAR-1)
 
 #define LEVEL_SHITF 6
 #define LEVEL       (1<<LEVEL_SHITF)
-#define LEVEL_MASK  (1-LEVEL)
+#define LEVEL_MASK  (LEVEL-1)
 
 
 struct timer_state {
@@ -43,6 +44,7 @@ hive_timer_create() {
     struct timer_state* ret = (struct timer_state*)hive_malloc(sizeof(*ret));
     memset(ret, 0, sizeof(*ret));
     ret->cur_time = 0;
+    return ret;
 }
 
 
@@ -53,6 +55,7 @@ _node_new(struct timer_state* state, uint32_t offset, int session, uint32_t hand
     node->expire = state->cur_time + offset;
     node->data.session = session;
     node->data.handle = handle;
+    return node;
 }
 
 static void
@@ -77,8 +80,8 @@ _hive_timer_add(struct timer_state* state, struct timer_node* node) {
     uint32_t expire = node->expire;
     uint32_t cur_time = state->cur_time;
 
-    if((expire | NEAR) == (cur_time | NEAR)) {
-        uint32_t idx = expire & NEAR;
+    if((expire | NEAR_MASK) == (cur_time | NEAR_MASK)) {
+        uint32_t idx = expire & NEAR_MASK;
         _list_append(&state->near_wheel[idx], node);
     } else {
         uint32_t value = expire >> NEAR_SHIFT;
@@ -139,7 +142,7 @@ _timer_move(struct timer_state* state, int level, int idx) {
 
 static void
 _hive_timer_shift(struct timer_state* state) {
-    uint32_t time = state->cur_time+1;
+    uint32_t time = ++state->cur_time;
     if(time == 0) {
         _timer_move(state, 3, 0);
     } else {
@@ -148,8 +151,9 @@ _hive_timer_shift(struct timer_state* state) {
         uint32_t mask = NEAR_SHIFT;
         while((time & (mask-1)) == 0) {
             int idx = ct & LEVEL_MASK;
-            if(id != 0) {
+            if(idx != 0) {
                 _timer_move(state, i, idx);
+                break;
             }
             i++;
             ct = ct >> LEVEL_SHITF;
@@ -163,14 +167,13 @@ void
 hive_timer_update(struct timer_state* state) {
     _hive_timer_exec(state);
     _hive_timer_shift(state);
-    state->cur_time++;
 }
 
 
 void
-hive_timer_insert(struct timer_state* state, uint32_t expire, int session, uint32_t handle) {
-    
+hive_timer_insert(struct timer_state* state, uint32_t offset, int session, uint32_t handle) {
+    struct timer_node* node = _node_new(state, offset, session, handle);
+    _hive_timer_add(state, node);
 }
-
 
 
