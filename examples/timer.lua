@@ -28,6 +28,8 @@ function M:on_create()
                         hive.abort()
                     end)
                 end)
+
+            timer.unregister(id4)
         end)
 end
 
