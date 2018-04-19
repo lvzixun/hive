@@ -1,5 +1,6 @@
 local c = require "hive.c"
 local socket = require "hive.socket"
+local timer = require "hive.timer"
 
 local HIVE_TCREATE = c.HIVE_TCREATE
 local HIVE_TRELEASE = c.HIVE_TRELEASE
@@ -31,8 +32,8 @@ local dispatch_driver = {
         check_call(_actor_obj, "on_release", _actor_ud)
     end,
 
-    [HIVE_TTIMER] = function (source, handle, type, ...)
-        check_call(_actor_obj, "on_timer", _actor_ud)
+    [HIVE_TTIMER] = function (source, handle, type, session)
+        timer.trigger(session)
     end,
 
     [HIVE_TNORMAL] = function (source, handle, type, session, data)

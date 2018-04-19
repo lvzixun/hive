@@ -13,6 +13,7 @@
 #include "hive_log.h"
 #include "socket_mgr.h"
 #include "actor_log.h"
+#include "hive_timer.h"
 
 #define unused(v)  ((void)v)
 
@@ -21,6 +22,7 @@ static struct hive_env {
     bool staring;
     bool exit;
     struct socket_mgr_state* sm_state;
+    struct timer_state* tm_state;
 }ENV;
 
 
@@ -31,6 +33,7 @@ hive_init() {
     ENV.staring = false;
     ENV.exit = false;
     ENV.sm_state = socket_mgr_create();
+    ENV.tm_state = hive_timer_create();
     assert(ENV.sm_state);
 }
 
@@ -65,8 +68,13 @@ _thread_socket(void* p) {
 static void*
 _thread_timer(void* p) {
     unused(p);
-    usleep(1500);
-    // todo it!
+    for(;;) {
+        hive_timer_update(ENV.tm_state);
+        usleep(10000); // 10 ms update
+        if(ENV.exit) {
+            break;
+        }
+    }
     return NULL;
 }
 
@@ -114,8 +122,11 @@ hive_start() {
         pthread_join(pid[i], NULL);
     }
 
-    // free socker manger
+    // free socker manager
     socket_mgr_release(ENV.sm_state);
+
+    // free timer manager
+    hive_timer_free(ENV.tm_state);
 
     // free actors chain
     hive_actor_free();
@@ -174,6 +185,11 @@ hive_socket_close(int id) {
 int 
 hive_socket_attach(int id, uint32_t actor_handle) {
     return socket_mgr_attach(ENV.sm_state, id, actor_handle);
+}
+
+int
+hive_timer_register(uint32_t offset, uint32_t handle) {
+    return hive_timer_insert(ENV.tm_state, offset, handle);
 }
 
 int 

@@ -165,6 +165,20 @@ _lhive_name(lua_State* L) {
     return 1;
 }
 
+static int
+_lhive_timer_register(lua_State* L) {
+    lua_Integer offset = luaL_checkinteger(L, 1);
+    struct actor_state* state = _self_state(L);
+    if(offset < 0) {
+        luaL_error(L, "timer offset:%d invalid.", offset);
+    }
+    uint32_t self_handle = state->handle;
+    int session = hive_timer_register(offset, self_handle);
+    lua_pushinteger(L, session);
+    return 1;
+}
+
+
 static uint32_t
 __hive_register(lua_State* L, const char* path, const char* name) {
     lua_State* NL = luaL_newstate();
@@ -344,6 +358,7 @@ _lhive_log(lua_State* L) {
 static int
 hive_lib(lua_State* L) {
     luaL_Reg l[] = {
+        // hive base lua api
         {"hive_register", _lhive_register}, 
         {"hive_unregister", _lhive_unregister},
         {"hive_start", _lhive_start},
@@ -352,6 +367,10 @@ hive_lib(lua_State* L) {
         {"hive_log", _lhive_log},
         {"hive_name", _lhive_name},
 
+        // timer api
+        {"hive_timer_register", _lhive_timer_register},
+
+        //  socket lua api
         {"hive_socket_connect", _lhive_socket_connect},
         {"hive_socket_listen", _lhive_socket_listen},
         {"hive_socket_addrinfo", _lhive_socket_addrinfo},

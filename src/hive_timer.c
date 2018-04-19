@@ -3,8 +3,12 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+#include <sys/time.h>
 
+#include "spinlock.h"
 #include "hive_memory.h"
+#include "hive.h"
+#include "actor_log.h"
 
 
 struct user_data {
@@ -33,10 +37,23 @@ struct timer_list {
 
 
 struct timer_state {
+    struct spinlock lock;
     struct timer_list near_wheel[NEAR];
     struct timer_list level_wheel[4][LEVEL];
     uint32_t cur_time;
+    uint64_t last_real_time;
+    int session;
 };
+
+
+static uint64_t
+_gettime() {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    uint64_t t_ms = (uint64_t)(tv.tv_sec * 1000);
+    t_ms += tv.tv_usec / 1000;
+    return t_ms / 10;  // 10 ms
+}
 
 
 struct timer_state *
@@ -44,9 +61,37 @@ hive_timer_create() {
     struct timer_state* ret = (struct timer_state*)hive_malloc(sizeof(*ret));
     memset(ret, 0, sizeof(*ret));
     ret->cur_time = 0;
+    ret->session = 0;
+    ret->last_real_time = _gettime();
+    spinlock_init(&ret->lock);
     return ret;
 }
 
+static void
+_clear_list(struct timer_list* list) {
+    struct timer_node* p = list->head;
+    while(p) {
+        struct timer_node* next = p->next;
+        hive_free(p);
+        p = next;
+    }
+}
+
+void
+hive_timer_free(struct timer_state* state) {
+    int i=0;
+    for(i=0; i<NEAR; i++) {
+        _clear_list(&state->near_wheel[i]);
+    }
+    int j=0;
+    for(i=0; i<4; i++) {
+        for(j=0; j<LEVEL; j++) {
+            _clear_list(&state->level_wheel[i][j]);
+        }
+    }
+
+    hive_free(state);
+}
 
 static struct timer_node *
 _node_new(struct timer_state* state, uint32_t offset, int session, uint32_t handle) {
@@ -105,7 +150,7 @@ _timer_dispatch(struct timer_state* state, struct timer_node* node) {
     int session = node->data.session;
     uint32_t handle = node->data.handle;
     assert(cur_time == node->expire);
-    // todo exec!!
+    hive_send(SYS_HANDLE, handle, HIVE_TTIMER, session, NULL, 0);
 }
 
 
@@ -116,14 +161,21 @@ _hive_timer_exec(struct timer_state* state) {
 
     struct timer_list* list = &state->near_wheel[idx];
     struct timer_node* node = list->head;
+
     while(node) {
-        _timer_dispatch(state, node);
-        struct timer_node* next = node->next;
-        _node_free(node);
-        node = next;
+        list->tail = NULL;
+        list->head = NULL;
+
+        spinlock_unlock(&state->lock);
+        while(node) {
+            _timer_dispatch(state, node);
+            struct timer_node* next = node->next;
+            _node_free(node);
+            node = next;
+        }
+        spinlock_lock(&state->lock);
+        node = list->head;
     }
-    list->tail = NULL;
-    list->head = NULL;
 }
 
 static void
@@ -163,17 +215,41 @@ _hive_timer_shift(struct timer_state* state) {
 }
 
 
-void
-hive_timer_update(struct timer_state* state) {
+
+
+static void
+_timer_update(struct timer_state* state) {
+    spinlock_lock(&state->lock);
     _hive_timer_exec(state);
     _hive_timer_shift(state);
+    spinlock_unlock(&state->lock);
+}
+
+void 
+hive_timer_update(struct timer_state* state) {
+    uint64_t cur_real_time = _gettime();
+    uint64_t last_real_time = state->last_real_time;
+    state->last_real_time = cur_real_time;
+    if(cur_real_time < last_real_time) {
+        actor_log_send(SYS_HANDLE, HIVE_LOG_ERR, "invalid timer diff");
+    }else {
+        uint64_t diff = cur_real_time - last_real_time;
+        uint64_t i=0;
+        for(i=0; i<diff; i++) {
+            _timer_update(state);
+        }
+    }
 }
 
 
-void
-hive_timer_insert(struct timer_state* state, uint32_t offset, int session, uint32_t handle) {
+int
+hive_timer_insert(struct timer_state* state, uint32_t offset, uint32_t handle) {
+    spinlock_lock(&state->lock);
+    int session = state->session++;
     struct timer_node* node = _node_new(state, offset, session, handle);
     _hive_timer_add(state, node);
+    spinlock_unlock(&state->lock);
+    return session;
 }
 
 

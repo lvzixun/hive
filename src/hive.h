@@ -23,7 +23,7 @@ typedef void (*hive_actor_cb)(
     uint32_t source, uint32_t self, int type, int session, void* data, size_t sz, void* ud);
 uint32_t hive_register(char* name, hive_actor_cb cb, void* ud);
 bool hive_unregister(uint32_t handle);
-
+int hive_timer_register(uint32_t offset, uint32_t handle);
 bool hive_send(uint32_t source, uint32_t target, int type, int session, void* data, size_t size);
 
 #endif
