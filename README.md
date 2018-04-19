@@ -42,3 +42,10 @@ read actors lua source code in [examples](https://github.com/lvzixun/hive/tree/m
 | `socket.addrinfo(id)` | get host and port from socket id |
 | `socket.attach(id)`| start accpet socket event |
 | `socket.close(id)`| close socket id |
+
+
+### timer api
+| api name | description |
+|:------:|:------|
+| `timer.register(timeout, func)` | trigger `func` after `timerout`*10 ms, return value is `timer_id`|
+| `timer.unregister(timer_id)` | disable trigger `timer_id` |
