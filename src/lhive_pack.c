@@ -27,8 +27,102 @@ struct pack_stream {
 };
 
 
-static size_t _lpack_table(lua_State* L, struct pack_stream* stream, int tb_idx, int rc_idx);
+struct pack_reader {
+    uint8_t* buffer;
+    size_t size;
+    size_t pos;
+};
+
+
+
+static void _lpack_table(lua_State* L, struct pack_stream* stream, int tb_idx, int rc_idx);
 static void _lpack_value(lua_State* L, struct pack_stream* stream, int value_idx, int rc_idx);
+
+#define check_reader(reader, cap) do{ \
+    if( (reader)->pos+(cap) > (reader)->size ) {\
+        return false; \
+    } \
+}while(0)
+
+#define preader(L, f, ...) do { \
+    bool b = f(__VA_ARGS__); \
+    if(!b) { \
+        luaL_error(L, "invalid pack data."); \
+    } \
+}while(0)
+
+#define cast_reader(reader, t) *((t*)((reader)->buffer + (reader)->pos))
+
+
+static void
+_reader_init(struct pack_reader* reader, const uint8_t* data, size_t sz) {
+    reader->size = sz;
+    reader->pos = 0;
+    reader->buffer = (uint8_t*)data;
+}
+
+static bool
+_reader_isend(struct pack_reader* reader) {
+    return reader->pos >= reader->size;
+}
+
+
+static bool
+_reader_type(struct pack_reader* reader, enum pack_type* out_type) {
+    check_reader(reader, sizeof(uint8_t));
+    uint8_t v = cast_reader(reader, uint8_t);
+    *out_type = (enum pack_type)v;
+    reader->pos += sizeof(uint8_t);
+    return true;
+}
+
+static bool
+_reader_integer(struct pack_reader* reader, lua_Integer* out_v) {
+    check_reader(reader, sizeof(lua_Integer));
+    *out_v = cast_reader(reader, lua_Integer);
+    reader->pos += sizeof(lua_Integer);
+    return true;
+}
+
+static bool
+_reader_real(struct pack_reader* reader, lua_Number* out_v) {
+    check_reader(reader, sizeof(lua_Number));
+    *out_v = cast_reader(reader, lua_Number);
+    reader->pos += sizeof(lua_Number);
+    return true;
+}
+
+
+static bool
+_reader_boolean(struct pack_reader* reader, bool* out_v) {
+    check_reader(reader, sizeof(uint8_t));
+    uint8_t v = cast_reader(reader, uint8_t);
+    *out_v = (bool)v;
+    reader->pos += sizeof(uint8_t);
+    return true;
+}
+
+
+static bool
+_reader_string(struct pack_reader* reader, const char** out_str, size_t* len) {
+    check_reader(reader, sizeof(size_t));
+    *len = cast_reader(reader, size_t);
+    reader->pos += sizeof(size_t);
+    check_reader(reader, *len);
+    *out_str = (const char*)(reader->buffer + reader->pos);
+    reader->pos += (*len);
+    return true;
+}
+
+
+static bool
+_reader_table(struct pack_reader* reader, int* fn) {
+    check_reader(reader, sizeof(int));
+    *fn = cast_reader(reader, int);
+    reader->pos += sizeof(int);
+    return true;
+}
+
 
 
 static void
@@ -52,10 +146,10 @@ static void
 _stream_expand(struct pack_stream* stream) {
     stream->size *= 2;
     if(stream->buffer == stream->constant) {
-        stream->buffer = (uint8_t*)hive_malloc(new_sz);
+        stream->buffer = (uint8_t*)hive_malloc(stream->size);
         memcpy(stream->buffer, stream->constant, stream->len);
     }else {
-        stream->buffer = (uint8_t*)hive_realloc(stream->size);
+        stream->buffer = (uint8_t*)hive_realloc(stream->buffer, stream->size);
         assert(stream->buffer);
     }
 }
@@ -76,7 +170,7 @@ static void
 _stream_push_data(struct pack_stream* stream, uint8_t* data, size_t sz) {
     size_t cap = stream->size - stream->len;
     if(cap<sz) {
-        _stream_expand(stream->buffer);
+        _stream_expand(stream);
     }
     assert(stream->size - stream->len >= sz);
     memcpy(stream->buffer+stream->len, data, sz);
@@ -106,7 +200,6 @@ _stream_push_real(struct pack_stream* stream, lua_Number v) {
 static void
 _stream_push_nil(struct pack_stream* stream) {
     _stream_push_type(stream, PT_NIL);
-    _stream_push_data(stream, (uint8_t*)&type, sizeof(type));
 }
 
 
@@ -130,21 +223,18 @@ _lpack_value(lua_State* L, struct pack_stream* stream, int value_idx, int rc_idx
     switch(type) {
         case LUA_TNIL: {
             _stream_push_nil(stream);
-        }
-        break;
+        }break;
 
         case LUA_TBOOLEAN: {
             bool v = lua_toboolean(L, value_idx);
             _stream_push_boolean(stream, v);
-        }
-        break;
+        }break;
 
         case LUA_TSTRING: {
             size_t sz;
-            cosnt char* s = lua_tolstring(L, value_idx, &sz);
+            const char* s = lua_tolstring(L, value_idx, &sz);
             _stream_push_string(stream, s, sz);
-        }
-        break;
+        }break;
 
         case LUA_TNUMBER: {
             if(lua_isinteger(L, value_idx)) {
@@ -154,28 +244,27 @@ _lpack_value(lua_State* L, struct pack_stream* stream, int value_idx, int rc_idx
                 lua_Number v = lua_tonumber(L, value_idx);
                 _stream_push_real(stream, v);
             }
-        }
-        break;
+        }break;
 
         case LUA_TTABLE: {
             _stream_push_type(stream, PT_TABLE);
-            size_t cur_pos = _stream_pos(stream);
-            _stream_push_data(stream, (uint8_t*)&cur_pos, sizeof(pos));
-            size_t data_pos = _lpack_table(L, stream, value_idx, rc_idx);
-            _stream_rewrite(stream, cur_pos, (uint8_t*)&data_pos, sizeof(data_pos));
-        }
-        break;
+            if(rc_idx<0) {
+                lua_checkstack(L, 1);
+                lua_newtable(L);
+                rc_idx = lua_gettop(L);
+            }
+            _lpack_table(L, stream, value_idx, rc_idx);
+        }break;
 
         default: {
             const char* type_name = lua_typename(L, value_idx);
-            luaL_error(L, "invalid pack lua type:%s", type_name)
-        }
-        break;
+            luaL_error(L, "invalid pack lua type:%s", type_name);
+        }break;
     }
 }
 
 
-static size_t
+static void
 _lpack_table(lua_State* L, struct pack_stream* stream, int tb_idx, int rc_idx) {
     int top = lua_gettop(L);
     size_t cur = 0;
@@ -185,8 +274,8 @@ _lpack_table(lua_State* L, struct pack_stream* stream, int tb_idx, int rc_idx) {
     lua_gettable(L, rc_idx);
     if(lua_isnil(L, -1)) {
         cur = _stream_pos(stream);
-        uint32_t fn = 0;
-        _stream_push_data(stream, (uint8_t*)&fn, sizeof(fn));
+        int n=0;
+        _stream_push_data(stream, (uint8_t*)&n, sizeof(n));
         lua_pop(L, 1);
         lua_pushvalue(L, tb_idx);
         lua_pushinteger(L, cur);
@@ -197,17 +286,14 @@ _lpack_table(lua_State* L, struct pack_stream* stream, int tb_idx, int rc_idx) {
             int key_idx = value_idx-1;
             _lpack_value(L, stream, key_idx, rc_idx);
             _lpack_value(L, stream, value_idx, rc_idx);
-            fn++;
-            if(fn == 0) {
-                break;  // table is to big!
-            }
+            lua_pop(L, 1);
+            n++;
         }
-        _stream_rewrite(data_stream, cur, (uint8_t*)&fn, sizeof(fn));
+        _stream_rewrite(stream, cur, (uint8_t*)&n, sizeof(n));
     }else {
-        cur = lua_tointeger(L, -1);    
+        luaL_error(L, "recursion table");
     }
     lua_settop(L, top);
-    return cur;
 }
 
 
@@ -218,9 +304,10 @@ _lstream_free(lua_State* L) {
     return 0;
 }
 
+
 static struct pack_stream*
 _lstream_new(lua_State* L) {
-    struct pack_stream* stream = (struct pack_stream*)lua_newuserdata(L, sizeof(stream));
+    struct pack_stream* stream = (struct pack_stream*)lua_newuserdata(L, sizeof(*stream));
     _stream_init(stream);
     if(luaL_newmetatable(L, "HIVE_PACK_STREAM_METATABLE")) {
         lua_pushcfunction(L, _lstream_free);
@@ -240,34 +327,94 @@ _lpack(lua_State* L) {
 
     lua_checkstack(L, 2);
     struct pack_stream* stream = _lstream_new(L);
-    lua_newtable(L);
-    int rc_idx = lua_gettop(L);
     int i;
     for(i=1; i<=top; i++) {
-        _lpack_value(L, stream, i, rc_idx);
+        _lpack_value(L, stream, i, -1);
     }
 
     lua_pushlstring(L, (const char*)stream->buffer, stream->len);
     return 1;
 }
 
+static void
+_unpack_value(lua_State* L, struct pack_reader* reader) {
+    enum pack_type type;
+    preader(L, _reader_type, reader, &type);
+    lua_checkstack(L, 1);
+
+    switch(type) {
+        case PT_NIL: {
+            lua_pushnil(L);
+        }break;
+
+        case PT_BOOLEAN: {
+            bool v = 0;
+            preader(L, _reader_boolean, reader, &v);
+            lua_pushboolean(L, v);
+        }break;
+
+        case PT_INTEGER: {
+            lua_Integer v;
+            preader(L, _reader_integer, reader, &v);
+            lua_pushinteger(L, v);
+        }break;
+
+        case PT_REAL: {
+            lua_Number v;
+            preader(L, _reader_real, reader, &v);
+            lua_pushnumber(L, v);
+        }break;
+
+        case PT_STRING: {
+            const char* str;
+            size_t sz;
+            preader(L, _reader_string, reader, &str, &sz);
+            lua_pushlstring(L, str, sz);
+        }break;
+
+        case PT_TABLE: {
+            int fn;
+            preader(L, _reader_table, reader, &fn);
+            lua_newtable(L);
+            int tb_idx = lua_gettop(L);
+            int i=0;
+            for(i=0; i<fn; i++) {
+                _unpack_value(L, reader);
+                _unpack_value(L, reader);
+                lua_settable(L, tb_idx);
+            }
+        }break;
+
+        default:
+            luaL_error(L, "invalid type:%d", type);
+    }
+}
 
 
 static int
 _lunpack(lua_State* L) {
-    return 0;
+    size_t sz;
+    const char* s = lua_tolstring(L, 1, &sz);
+    struct pack_reader reader;
+    int n = 0;
+    _reader_init(&reader, (const uint8_t*)(s), sz);
+    while(!_reader_isend(&reader)) {
+        _unpack_value(L, &reader);
+        n++;   
+    }
+    return n;
 }
 
 
 
 int 
-lhive_luaopen_pack(lua_State* L) {
+luaopen_pack(lua_State* L) {
     luaL_checkversion(L);
     luaL_Reg l[] = {
         {"pack", _lpack},
         {"unpack", _lunpack},
         {NULL, NULL},
-    }
+    };
 
     luaL_newlib(L, l);
     return 1;

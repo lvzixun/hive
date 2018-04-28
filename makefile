@@ -16,6 +16,8 @@ all: hive
 hive: $(SOURCE_O)
 	$(CC) -o $@ $^ -llua -lpthread -lm -ldl
 
+pack.so: src/hive_memory.c src/lhive_pack.c
+	clang  -g -Wall -Wl,-undefined,dynamic_lookup --shared -o $@ $^
 
 clean:
 	rm -rf $(SOURCE_O)
