@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <stdio.h>
 
 #include "hive_memory.h"
 #include "lhive_pack.h"
@@ -24,6 +25,7 @@ struct pack_stream {
     uint8_t* buffer;
     size_t len;
     size_t size;
+    char error[128];
 };
 
 
@@ -35,8 +37,8 @@ struct pack_reader {
 
 
 
-static void _lpack_table(lua_State* L, struct pack_stream* stream, int tb_idx, int rc_idx);
-static void _lpack_value(lua_State* L, struct pack_stream* stream, int value_idx, int rc_idx);
+static bool _lpack_table(lua_State* L, struct pack_stream* stream, int tb_idx, int rc_idx);
+static bool _lpack_value(lua_State* L, struct pack_stream* stream, int value_idx, int rc_idx);
 
 #define check_reader(reader, cap) do{ \
     if( (reader)->pos+(cap) > (reader)->size ) {\
@@ -217,7 +219,7 @@ _stream_push_string(struct pack_stream* stream, const char* s, size_t sz) {
     _stream_push_data(stream, (uint8_t*)s, sz);
 }
 
-static void
+static bool
 _lpack_value(lua_State* L, struct pack_stream* stream, int value_idx, int rc_idx) {
     int type = lua_type(L, value_idx);
     switch(type) {
@@ -248,26 +250,31 @@ _lpack_value(lua_State* L, struct pack_stream* stream, int value_idx, int rc_idx
 
         case LUA_TTABLE: {
             _stream_push_type(stream, PT_TABLE);
-            if(rc_idx<0) {
+            if(rc_idx == 0) {
                 lua_checkstack(L, 1);
                 lua_newtable(L);
                 rc_idx = lua_gettop(L);
             }
-            _lpack_table(L, stream, value_idx, rc_idx);
+            if(!_lpack_table(L, stream, value_idx, rc_idx)) {
+                return false;
+            }
         }break;
 
         default: {
             const char* type_name = lua_typename(L, value_idx);
-            luaL_error(L, "invalid pack lua type:%s", type_name);
+            snprintf(stream->error, sizeof(stream->error), "invalid pack lua type:%s", type_name);
+            return false;
         }break;
     }
+    return true;
 }
 
 
-static void
+static bool
 _lpack_table(lua_State* L, struct pack_stream* stream, int tb_idx, int rc_idx) {
     int top = lua_gettop(L);
     size_t cur = 0;
+    bool ret = true;
 
     lua_checkstack(L, 3);
     lua_pushvalue(L, tb_idx);
@@ -284,38 +291,25 @@ _lpack_table(lua_State* L, struct pack_stream* stream, int tb_idx, int rc_idx) {
         while(lua_next(L, tb_idx) != 0) {
             int value_idx = lua_gettop(L);
             int key_idx = value_idx-1;
-            _lpack_value(L, stream, key_idx, rc_idx);
-            _lpack_value(L, stream, value_idx, rc_idx);
+            if(!_lpack_value(L, stream, key_idx, rc_idx) || 
+               !_lpack_value(L, stream, value_idx, rc_idx)) {
+                ret = false;
+                goto PACKTABLE_END;
+            }
             lua_pop(L, 1);
             n++;
         }
         _stream_rewrite(stream, cur, (uint8_t*)&n, sizeof(n));
     }else {
-        luaL_error(L, "recursion table");
+        snprintf(stream->error, sizeof(stream->error), "recursion table");
+        ret = false;
     }
+
+    PACKTABLE_END:
     lua_settop(L, top);
+    return ret;
 }
 
-
-static int
-_lstream_free(lua_State* L) {
-    struct pack_stream* stream = (struct pack_stream*)lua_touserdata(L, -1);
-    _stream_free(stream);
-    return 0;
-}
-
-
-static struct pack_stream*
-_lstream_new(lua_State* L) {
-    struct pack_stream* stream = (struct pack_stream*)lua_newuserdata(L, sizeof(*stream));
-    _stream_init(stream);
-    if(luaL_newmetatable(L, "HIVE_PACK_STREAM_METATABLE")) {
-        lua_pushcfunction(L, _lstream_free);
-        lua_setfield(L, -2, "__gc");
-    }
-    lua_setmetatable(L, -2);
-    return stream;
-}
 
 
 static int
@@ -325,14 +319,24 @@ _lpack(lua_State* L) {
         return 0;
     }
 
-    lua_checkstack(L, 2);
-    struct pack_stream* stream = _lstream_new(L);
+    struct pack_stream stream;
+    _stream_init(&stream);
     int i;
+    bool b = true;
     for(i=1; i<=top; i++) {
-        _lpack_value(L, stream, i, -1);
+        b = _lpack_value(L, &stream, i, 0);
+        if(!b) {
+            break;
+        }
     }
 
-    lua_pushlstring(L, (const char*)stream->buffer, stream->len);
+    if(b) {
+        lua_pushlstring(L, (const char*)stream.buffer, stream.len);
+        _stream_free(&stream);
+    }else {
+        _stream_free(&stream);
+        luaL_error(L, "%s", stream.error);
+    }
     return 1;
 }
 
