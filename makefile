@@ -6,7 +6,7 @@ CC:= cc
 SOURCE_C := src/hive.c src/hive_actor.c src/hive_memory.c \
 	src/hive_mq.c src/hive_log.c src/socket_mgr.c \
 	src/hive_bootstrap.c src/actor_agent_gate.c src/actor_log.c \
-	src/lhive_buffer.c  src/hive_timer.c
+	src/lhive_buffer.c  src/hive_timer.c src/lhive_pack.c
 
 SOURCE_O := $(SOURCE_C:.c=.o)
 
@@ -16,8 +16,6 @@ all: hive
 hive: $(SOURCE_O)
 	$(CC) -o $@ $^ -llua -lpthread -lm -ldl
 
-pack.so: src/hive_memory.c src/lhive_pack.c
-	clang  -g -Wall -Wl,-undefined,dynamic_lookup --shared -o $@ $^
 
 clean:
 	rm -rf $(SOURCE_O)
