@@ -13,7 +13,8 @@ local function _log(level, ...)
             local v = select(i, ...)
             t[i] = tostring(v)
         end
-        s = table.concat(t, "  ")
+        local h = string.format("actor:%s[%s] ", SELF_NAME, SELF_HANDLE)
+        s = h..table.concat(t, "  ")
     end
     return hive_log(level, s)
 end
