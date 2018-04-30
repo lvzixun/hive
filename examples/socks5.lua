@@ -20,7 +20,7 @@ function M:on_create()
                 local host, port = socket.addrinfo(client_id)
                 hive_log.logf("[accept] %s:%s", host, port)
                 if agent_handle then
-                    hive.send(agent_handle, client_id)
+                    hive.send(agent_handle, "resovle_agent", client_id)
                 else
                     socket.close(client_id)
                 end
@@ -170,10 +170,8 @@ local function resovle(id)
 end
 
 
-function M:on_recv(source, client_id)
-    if SELF_NAME == "agent" then
-        thread.run(resovle, client_id)
-    end
+function M:resovle_agent(client_id)
+    thread.run(resovle, client_id)
 end
 
 
