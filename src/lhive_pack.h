@@ -6,6 +6,6 @@
 #include <lualib.h>
 
 
-int lhive_luaopen_pack(lua_State* L);
+int  lhive_luaopen_pack(lua_State* L);
 
 #endif

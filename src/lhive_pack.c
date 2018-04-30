@@ -412,7 +412,7 @@ _lunpack(lua_State* L) {
 
 
 int 
-luaopen_pack(lua_State* L) {
+lhive_luaopen_pack(lua_State* L) {
     luaL_checkversion(L);
     luaL_Reg l[] = {
         {"pack", _lpack},

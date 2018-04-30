@@ -11,6 +11,7 @@
 #include <assert.h>
 
 #include "lhive_buffer.h"
+#include "lhive_pack.h"
 
 
 struct actor_state {
@@ -420,6 +421,9 @@ _register_lib(lua_State* L) {
 
     // register base lib
     reg_lua_lib(L, lhive_luaopen_buffer, "buffer.c");
+
+    // register pack lib
+    reg_lua_lib(L, lhive_luaopen_pack, "pack.c");
 }
 
 
