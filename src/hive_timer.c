@@ -52,7 +52,7 @@ _gettime() {
     gettimeofday(&tv, NULL);
     uint64_t t_ms = (uint64_t)(tv.tv_sec * 1000);
     t_ms += tv.tv_usec / 1000;
-    return t_ms / 10;  // 10 ms
+    return t_ms;
 }
 
 
@@ -233,7 +233,7 @@ hive_timer_update(struct timer_state* state) {
     if(cur_real_time < last_real_time) {
         actor_log_send(SYS_HANDLE, HIVE_LOG_ERR, "invalid timer diff");
     }else {
-        uint64_t diff = cur_real_time - last_real_time;
+        uint64_t diff = (cur_real_time - last_real_time) / 10; // 10 ms
         uint64_t i=0;
         for(i=0; i<diff; i++) {
             _timer_update(state);
