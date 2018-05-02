@@ -43,12 +43,12 @@ function M:hello(s)
 end
 
 
-function M:on_create()
-    if SELF_NAME ~= "bootstrap" then
+function M:on_create(is_excahnge)
+    if is_excahnge then
         return
     end
 
-    local server_handle = hive.create("examples/exchange.lua", "exchange")
+    local server_handle = hive.create("examples/exchange.lua", "ExchangeActor", true)
     thread.run(function ()
             hive.send(server_handle, "hello", "world")
             local ret = hive.call(server_handle, "nothing", "test nothing", 3.45, true, false, nil, {key = "value"})

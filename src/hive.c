@@ -137,8 +137,8 @@ hive_start() {
 // ---------------- hive actor api ----------------  
 
 uint32_t
-hive_register(char* name, hive_actor_cb cb, void* ud) {
-    return hive_actor_create(name, cb, ud);
+hive_register(char* name, hive_actor_cb cb, void* ud, void* data, size_t sz) {
+    return hive_actor_create(name, cb, ud, data, sz);
 }
 
 bool

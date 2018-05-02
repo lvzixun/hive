@@ -47,10 +47,10 @@ end
 
 
 local dispatch_driver = {
-    [HIVE_TCREATE] = function (source, handle, type, ...)
+    [HIVE_TCREATE] = function (source, handle, type, session, data)
         SELF_HANDLE = handle
         SELF_NAME = c.hive_name()
-        check_call(_actor_obj, "on_create", _actor_ud)
+        check_call(_actor_obj, "on_create", _actor_ud, hive_pack.unpack(data))
     end,
 
     [HIVE_TRELEASE] = function (source, handle, type, ...)
@@ -97,8 +97,9 @@ end
 
 local M = {}
 
-function M.create(path, name)
-    return c.hive_register(path, name)
+function M.create(path, name, ...)
+    local param_data = hive_pack.pack(...)
+    return c.hive_register(path, name, param_data)
 end
 
 

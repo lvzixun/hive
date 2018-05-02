@@ -181,7 +181,7 @@ _lhive_timer_register(lua_State* L) {
 
 
 static uint32_t
-__hive_register(lua_State* L, const char* path, const char* name) {
+__hive_register(lua_State* L, const char* path, const char* name, void* data, size_t sz) {
     lua_State* NL = luaL_newstate();
     struct actor_state* state = (struct actor_state*)lua_newuserdata(NL, sizeof(struct actor_state));
     state->L = NL;
@@ -204,7 +204,7 @@ __hive_register(lua_State* L, const char* path, const char* name) {
         }
     }
 
-    uint32_t handle = hive_register((char*)name, _lua_actor_dispatch, state);
+    uint32_t handle = hive_register((char*)name, _lua_actor_dispatch, state, data, sz);
     state->handle = handle;
     return handle;
 }
@@ -214,11 +214,18 @@ static int
 _lhive_register(lua_State* L) {
     const char* path = lua_tostring(L, 1);
     const char* name = lua_tostring(L, 2);
+
+    size_t sz = 0;
+    const char* data = NULL;
+    if(lua_isstring(L, 3)) {
+        data = luaL_tolstring(L, 3, &sz);
+    }
+    
     if(!path) {
         return 0;
     }
 
-    uint32_t handle = __hive_register(L, path, name);
+    uint32_t handle = __hive_register(L, path, name, (void*)data, sz);
     if(handle == 0) {
         return 0;
     }
@@ -433,7 +440,7 @@ hive_bootstrap_init(const char* bootstrap_path) {
         bootstrap_path = "examples/bootstrap.lua";
     }
     
-    uint32_t handle = __hive_register(NULL, bootstrap_path, "bootstrap");
+    uint32_t handle = __hive_register(NULL, bootstrap_path, "bootstrap", NULL, 0);
     if(handle == 0) {
         hive_panic("invalid bootstrap actor from `%s`", bootstrap_path);
     }

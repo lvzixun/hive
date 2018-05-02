@@ -57,7 +57,7 @@ actor_log_init(const char* file_path) {
     }
 
     _ENV.fp = (fp)?(fp):(stdout);
-    _ENV.handle = hive_register("hive_log", _actor_log_dispatch, NULL);
+    _ENV.handle = hive_register("hive_log", _actor_log_dispatch, NULL, NULL, 0);
     assert(_ENV.handle > 0);
 }
 

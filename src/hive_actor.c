@@ -193,9 +193,23 @@ hive_actor_dispatch() {
     return 1;
 }
 
+static unsigned char*
+_message_slice(void* data, size_t size) {
+    unsigned char* new_data = NULL;
+    if(size == 0) {
+        new_data = NULL;
+    } else if (data != NULL) {
+        new_data = (unsigned char*)hive_malloc(size);
+        memcpy(new_data, data, size);
+    } else {
+        assert(false);
+    }
+    return new_data;
+}
+
 
 uint32_t
-hive_actor_create(char* name, hive_actor_cb cb, void* ud) {
+hive_actor_create(char* name, hive_actor_cb cb, void* ud, void* data, size_t sz) {
     actors_wlock();
     if(ACTOR_MGR.exit) {
         actors_wunlock();
@@ -216,8 +230,8 @@ hive_actor_create(char* name, hive_actor_cb cb, void* ud) {
                     .source = SYS_HANDLE,
                     .session = 0,
                     .type = HIVE_TCREATE,
-                    .data = NULL,
-                    .size = 0,
+                    .data = _message_slice(data, sz),
+                    .size = sz,
                 };
                 _actor_send(actor, &msg);
                 actors_wunlock();
@@ -277,20 +291,12 @@ hive_actor_send(uint32_t source, uint32_t target, int type, int session, void* d
     if (dst_actor == NULL) {
         ret = -1;
     } else {
-        unsigned char* new_data = NULL;
-        if(size == 0) {
-            new_data = NULL;
-        } else if (data != NULL) {
-            new_data = (unsigned char*)hive_malloc(size);
-            memcpy(new_data, data, size);
-        }
-
         struct hive_message msg = {
             .source = source,
             .type = type,
             .session = session,
             .size = size,
-            .data = new_data,
+            .data = _message_slice(data, size),
         };
        _actor_send(dst_actor, &msg);
     }
