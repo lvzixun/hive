@@ -26,7 +26,7 @@ read actors lua source code in [examples](https://github.com/lvzixun/hive/tree/m
 ### actor api
 | api name | description |
 |:------:|:------|
-| `hive.create(path, name)` | create `name` actor from `path`, return actor handle |
+| `hive.create(path, name, ...)` | create `name` actor from `path` with params, return actor handle, get params from `on_create` function|
 | `hive.exit(actor_handle)` | exit actor |
 |`hive.send(target_handle, func_name, ...)`| noblocking call `func_name` of `target_handle` actor, no return value|
 |`hive.call(target_handle, func_name, ...)`| blocking call `func_name` of `target_handle` actor and returns result|
