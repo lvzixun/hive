@@ -23,25 +23,18 @@ local source = [[
 ]]
 
 
-function M:on_recv(_, client_id)
-    thread.run(function ()
-            socket.attach(client_id)
-            while true do
-                local s, err = socket.read(client_id)
-                if s and #s>0 then
-                    printf("\nrecv:%s from socket id:%s by actor:%s\n", s, client_id, SELF_HANDLE)
-                    socket.send(client_id, source)
-                    socket.close(client_id)
-                    break
-                elseif s and #s == 0 then
-                    printf("socket id:%s is break", client_id)
-                    break
-                else
-                    printf("s:%s error:%s", s, err)
-                    break
-                end
-            end
-        end)
+function M:echo(client_id)
+    socket.attach(client_id)
+    local s, err = socket.read(client_id)
+    if s and #s>0 then
+        printf("\nrecv:%s from socket id:%s by actor:%s\n", s, client_id, SELF_HANDLE)
+        socket.send(client_id, source)
+        socket.close(client_id)
+    elseif s and #s == 0 then
+        printf("socket id:%s is break", client_id)
+    else
+        printf("s:%s error:%s", s, err)
+    end
 end
 
 
