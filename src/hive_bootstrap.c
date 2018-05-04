@@ -1,4 +1,5 @@
 #include "hive.h"
+#include "hive_timer.h"
 #include "hive_socket.h"
 
 #include "actor_log.h"
@@ -176,6 +177,13 @@ _lhive_timer_register(lua_State* L) {
     uint32_t self_handle = state->handle;
     int session = hive_timer_register(offset, self_handle);
     lua_pushinteger(L, session);
+    return 1;
+}
+
+static int
+_lhive_timer_gettime(lua_State* L) {
+    uint64_t t = hive_timer_gettime();
+    lua_pushinteger(L, t);
     return 1;
 }
 
@@ -377,6 +385,7 @@ hive_lib(lua_State* L) {
 
         // timer api
         {"hive_timer_register", _lhive_timer_register},
+        {"hive_timer_gettime", _lhive_timer_gettime},
 
         //  socket lua api
         {"hive_socket_connect", _lhive_socket_connect},
