@@ -63,7 +63,7 @@ local dispatch_driver = {
 
     [HIVE_TNORMAL] = function (source, handle, type, session, data)
         if session == 0 then
-            normal_solve(hive_pack.unpack(data))
+            thread.run(normal_solve, hive_pack.unpack(data))
         elseif session then
             local source_map = session_map[source]
             local session_context = source_map and source_map[session]
