@@ -342,7 +342,7 @@ _lpack(lua_State* L) {
 
 static void
 _unpack_value(lua_State* L, struct pack_reader* reader) {
-    enum pack_type type;
+    enum pack_type type = PT_NIL;
     preader(L, _reader_type, reader, &type);
     lua_checkstack(L, 1);
 
@@ -358,26 +358,26 @@ _unpack_value(lua_State* L, struct pack_reader* reader) {
         }break;
 
         case PT_INTEGER: {
-            lua_Integer v;
+            lua_Integer v = 0;
             preader(L, _reader_integer, reader, &v);
             lua_pushinteger(L, v);
         }break;
 
         case PT_REAL: {
-            lua_Number v;
+            lua_Number v = 0.0;
             preader(L, _reader_real, reader, &v);
             lua_pushnumber(L, v);
         }break;
 
         case PT_STRING: {
-            const char* str;
-            size_t sz;
+            const char* str = NULL;
+            size_t sz = 0;
             preader(L, _reader_string, reader, &str, &sz);
             lua_pushlstring(L, str, sz);
         }break;
 
         case PT_TABLE: {
-            int fn;
+            int fn = 0;
             preader(L, _reader_table, reader, &fn);
             lua_newtable(L);
             int tb_idx = lua_gettop(L);
