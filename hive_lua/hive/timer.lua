@@ -26,4 +26,9 @@ function M.trigger(timer_id)
 end
 
 
+function M.gettime()
+    return c.hive_timer_gettime()
+end
+
+
 return M

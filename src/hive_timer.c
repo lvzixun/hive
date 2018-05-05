@@ -46,8 +46,8 @@ struct timer_state {
 };
 
 
-static uint64_t
-_gettime() {
+uint64_t
+hive_timer_gettime() {
     struct timeval tv;
     gettimeofday(&tv, NULL);
     uint64_t t_ms = (uint64_t)(tv.tv_sec * 1000);
@@ -62,7 +62,7 @@ hive_timer_create() {
     memset(ret, 0, sizeof(*ret));
     ret->cur_time = 0;
     ret->session = 0;
-    ret->last_real_time = _gettime();
+    ret->last_real_time = hive_timer_gettime();
     spinlock_init(&ret->lock);
     return ret;
 }
@@ -227,7 +227,7 @@ _timer_update(struct timer_state* state) {
 
 void 
 hive_timer_update(struct timer_state* state) {
-    uint64_t cur_real_time = _gettime();
+    uint64_t cur_real_time = hive_timer_gettime();
     uint64_t last_real_time = state->last_real_time;
     state->last_real_time = cur_real_time;
     if(cur_real_time < last_real_time) {
