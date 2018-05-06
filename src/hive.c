@@ -41,8 +41,6 @@ hive_init() {
 void
 hive_exit() {
     ENV.exit = true;
-    // notify timer thread exit
-    // todo it!
 
     // notify socket thread exit
     socket_mgr_exit(ENV.sm_state);
