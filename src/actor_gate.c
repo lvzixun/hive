@@ -20,7 +20,6 @@ struct imap_slot {
     struct imap_slot* next;
 };
 
-
 struct imap_context {
     struct imap_slot* slots;
     size_t size;
@@ -29,7 +28,6 @@ struct imap_context {
 };
 
 #define DEFAULT_IMAP_SLOT_SIZE 8
-
 static void _imap_set(struct imap_context* imap, int key, uint32_t handle);
 
 
@@ -103,11 +101,11 @@ _imap_query(struct imap_context* imap, int key) {
     return NULL;
 }
 
-static struct imap_slot*
+static struct imap_slot *
 _imap_getfree(struct imap_context* imap) {
     while(imap->lastfree > imap->slots) {
         imap->lastfree--;
-        if(imap->lastfree->status != IS_EXIST) {
+        if(imap->lastfree->status == IS_NONE) {
             return imap->lastfree;
         }
     }
@@ -122,14 +120,10 @@ _imap_set(struct imap_context* imap, int key, uint32_t handle) {
     struct imap_slot* p = &(imap->slots[hash]);
     if(p->status == IS_EXIST) {
         struct imap_slot* np = p;
-        struct imap_slot* last = p;
         while(np) {
             if(np->key == key && np->status == IS_EXIST) {
                 p->handle = handle;
                 return;
-            }
-            if(np->next == NULL) {
-                last = np;
             }
             np = np->next;
         }
@@ -139,9 +133,16 @@ _imap_set(struct imap_context* imap, int key, uint32_t handle) {
             _imap_rehash(imap);
             _imap_set(imap, key, handle);
             return;
-        }else {
-            last->next = np;
+        }
+
+        int main_hash = _imap_hash(imap, p->key);
+        np->next = p->next;
+        p->next = np;
+        if(main_hash == hash) {
             p = np;
+        }else {
+            np->key = p->key;
+            np->value = p->value;
         }
     }
 
