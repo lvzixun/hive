@@ -153,9 +153,11 @@ _block_resolve_complete(struct ringbuffer_context* ringbuffer, struct ringbuffer
 }
 
 static inline void
-_record_mount_block(struct ringbuffer_record* record, struct ringbuffer_block* block) {
+_record_link_block(struct ringbuffer_record* record, struct ringbuffer_block* block) {
     if(record->tail == NULL) {
+        assert(record->head == NULL);
         record->tail = block;
+        record->head = block;
     }else {
         record->tail->next = block;
     }
@@ -184,6 +186,10 @@ _block_resolve_slice(struct ringbuffer_context* ringbuffer, struct ringbuffer_re
         struct ringbuffer_record* cur_record = _imap_query(ringbuffer, p->id);
         assert(cur_record);
         _ringbuffer_trigger_close(cur_record);
+        // is current socket id ?
+        if(p->id == id) {
+            return;
+        }
     }
 
     assert(is_empty_block(cur_p));
@@ -194,7 +200,7 @@ _block_resolve_slice(struct ringbuffer_context* ringbuffer, struct ringbuffer_re
         cur_p->cap = sz;
         cur_p->next = NULL;
         cur_p->id = id;
-        _record_mount_block(record, cur_p);
+        _record_link_block(record, cur_p);
         struct ringbuffer_block* np = block_next(cur_p, sz);
         np->size = -(b_sz - sz - sizeof(struct ringbuffer_block));
         np->cap = 0;
@@ -230,6 +236,7 @@ static void
 _ringbuffer_add(struct ringbuffer_context* ringbuffer, uint32_t source, int id, uint8_t* data, int sz) {
     struct imap_context* imap = ringbuffer->imap;
     struct ringbuffer_record * record = (struct ringbuffer_record*)_imap_query(imap, id);
+    // is first add?
     if(record == NULL) {
         record = _record_new(source);
         _imap_set(imap, id, record);
@@ -256,7 +263,7 @@ _ringbuffer_add(struct ringbuffer_context* ringbuffer, uint32_t source, int id, 
             }
             memcpy(record->header_state.header_buffer + record->header_state.cap, read_p, read_sz);
             record->header_state.cap += read_sz;
-            if(expect <= sz) {
+            if(read_sz == expect) {
                 uint32_t v = 0;
                 int i=0;
                 // big endian
