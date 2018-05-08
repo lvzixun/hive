@@ -67,8 +67,10 @@ struct actor_gate {
     uint32_t acotr_handle;    
 };
 
-#define is_empty_block(b) ((b)->size<0)
-#define BLOCK_HEADER_SIZE sizeof(struct ringbuffer_block)
+#define is_empty_block(b)           ((b)->size<0)
+#define BLOCK_HEADER_SIZE           sizeof(struct ringbuffer_block)
+#define block_size(data_size)       (sizeof(struct ringbuffer_block)+(data_size))
+#define block_next(p, data_size)    (struct ringbuffer_block*)(((uint8_t*)(p))+block_size(data_size))
 #define DEFAULT_IMAP_SLOT_SIZE 8
 
 static struct imap_context * _imap_create();
@@ -113,8 +115,16 @@ _ringbuffer_trigger_package(struct ringbuffer_record* record, uint8_t* data, siz
 
 
 static void
-_ringbuffer_trigger_close(struct ringbuffer_record* record) {
-
+_ringbuffer_trigger_close(struct ringbuffer_record* record, int id) {
+    uint32_t handle = record->handle;
+    struct ringbuffer_block* p = record->head;
+    while(p) {
+        p->size = 0 - p->size;
+        p->cap = 0;
+        p = p->next;
+    }
+    // socket close id
+    // notify handle actor close
 }
 
 
@@ -134,7 +144,7 @@ _block_resolve_complete(struct ringbuffer_context* ringbuffer, struct ringbuffer
     }
     real_size += sz;
     memcpy(tmp, data, sz);
-    _ringbuffer_trigger(record, tmp, real_size);
+    _ringbuffer_trigger_package(record, tmp, real_size);
     record->head = NULL;
     record->tail = NULL;
     record->cap = 0;
@@ -142,15 +152,56 @@ _block_resolve_complete(struct ringbuffer_context* ringbuffer, struct ringbuffer
     record->header_state.cap = 0;
 }
 
+static inline void
+_record_mount_block(struct ringbuffer_record* record, struct ringbuffer_block* block) {
+    if(record->tail == NULL) {
+        record->tail = block;
+    }else {
+        record->tail->next = block;
+    }
+    record->cap += block->cap;
+}
+
+
+static void
+_block_collect(struct ringbuffer_context* ringbuffer, struct ringbuffer_block* block) {
+    struct ringbuffer_block* end_block = ringbuffer->block_data + sizeof(ringbuffer->block_data);
+    assert(is_empty_block(block));
+    struct ringbuffer_block* p = block_next(block, -block->size);
+    while(block<end_block && is_empty_block(p)) {
+        block->size -= block_size(-p->size);
+        p = block_next(p, -p->size);
+    }
+}
+
 
 static void
 _block_resolve_slice(struct ringbuffer_context* ringbuffer, struct ringbuffer_record* record, int id, uint8_t* data, int sz) {
-    if(is_empty_block(ringbuffer->cur_block)) {
+    struct ringbuffer_block* cur_p = ringbuffer->cur_block;
 
-    } else {
+    if(!is_empty_block(cur_p)) {
+        // force close timeout socket
         struct ringbuffer_record* cur_record = _imap_query(ringbuffer, p->id);
         assert(cur_record);
         _ringbuffer_trigger_close(cur_record);
+    }
+
+    assert(is_empty_block(cur_p));
+    ssize_t b_sz = 0 - cur_p->size;
+    if(sz + block_size(8) <= b_sz) {
+        memcpy(cur_p->data, data, sz);
+        cur_p->size = sz;
+        cur_p->cap = sz;
+        cur_p->next = NULL;
+        cur_p->id = id;
+        _record_mount_block(record, cur_p);
+        struct ringbuffer_block* np = block_next(cur_p, sz);
+        np->size = -(b_sz - sz - sizeof(struct ringbuffer_block));
+        np->cap = 0;
+        np->next = NULL;
+        ringbuffer->cur_block = np;
+    } else {
+        _block_collect(ringbuffer, cur_p);
     }
 }
 
