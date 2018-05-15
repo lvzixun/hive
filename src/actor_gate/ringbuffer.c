@@ -1,6 +1,10 @@
 #include "hive_memory.h"
 #include "actor_gate/imap.h"
+#include "actor_gate/ringbuffer.h"
 
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
@@ -19,7 +23,6 @@ struct ringbuffer_block {
 
 
 struct ringbuffer_record {
-    uint32_t handle;
     uint32_t cap;
     uint32_t size;
     struct {
@@ -36,6 +39,8 @@ struct ringbuffer_context {
     struct ringbuffer_block* cur_block;
     uint8_t block_data[RINGBUFFER_MAX_SIZE];
     uint8_t temp_data[MAX_PKG_SIZE];
+    ringbuffer_triggre_close close_cb;
+    ringbuffer_triggre_package package_cb;
 };
 
 
@@ -49,24 +54,41 @@ struct ringbuffer_context {
 #define block_end(ringbuffer)       ((struct ringbuffer_block*)((ringbuffer)->block_data + sizeof((ringbuffer)->block_data)))
 #define block_head(ringbuffer)      ((struct ringbuffer_block*)((ringbuffer)->block_data))
 
-static struct ringbuffer_context *
-_ringbuffer_create() {
+struct ringbuffer_context *
+ringbuffer_create() {
     struct ringbuffer_context* ringbuffer = (struct ringbuffer_context*)hive_malloc(sizeof(struct ringbuffer_context));
     ringbuffer->cur_block = (struct ringbuffer_block*)ringbuffer->block_data;
     ringbuffer->cur_block->size = -BLOCK_MAXSZ;
-    ringbuffer->cur_block->cap = 0;
     ringbuffer->cur_block->next = NULL;
+    ringbuffer->close_cb = NULL;
+    ringbuffer->package_cb = NULL;
     ringbuffer->imap = imap_create();
     return ringbuffer;
 }
 
 
+void
+ringbuffer_free(struct ringbuffer_context* ringbuffer) {
+    // free imap value todo !!
+    imap_free(ringbuffer->imap);
+
+    // free ringbuffer context
+    hive_free(ringbuffer);
+}
+
+
+void
+ringbuffer_cb(struct ringbuffer_context* ringbuffer, ringbuffer_triggre_close close_cb, ringbuffer_triggre_package package_cb) {
+    ringbuffer->close_cb = close_cb;
+    ringbuffer->package_cb = package_cb;
+}
+
+
 static inline struct ringbuffer_record *
-_record_new(uint32_t handle, int id) {
+_record_new(int id) {
     struct ringbuffer_record* record = (struct ringbuffer_record*)hive_malloc(sizeof(*record));
     record->tail = NULL;
     record->head = NULL;
-    record->handle = handle;
     record->size = 0;
     record->cap = 0;
     return record;
@@ -80,21 +102,32 @@ _record_free(struct ringbuffer_record* p) {
 
 
 static void
-_ringbuffer_trigger_package(struct ringbuffer_record* record, uint8_t* data, size_t sz) {
-
+_ringbuffer_trigger_package(struct ringbuffer_context* ringbuffer, struct ringbuffer_record* record, uint8_t* data, size_t sz) {
+    if(ringbuffer->package_cb) {
+        struct ringbuffer_block* p = record->head;
+        assert(p);
+        int id = p->id;    
+        ringbuffer->package_cb(id, data, sz);
+    }
 }
 
 
 static void
-_ringbuffer_trigger_close(struct ringbuffer_record* record, int id) {
-    uint32_t handle = record->handle;
+_ringbuffer_trigger_close(struct ringbuffer_context* ringbuffer, struct ringbuffer_record* record) {
     struct ringbuffer_block* p = record->head;
+    int id = p->id;
     while(p) {
         p->size = 0 - p->size;
         p = p->next;
     }
-    // socket close id
-    // notify handle actor close
+
+    struct ringbuffer_record* rp  = imap_remove(ringbuffer->imap, id);
+    assert(rp == record);
+    _record_free(rp);
+
+    if(ringbuffer->close_cb) {
+        ringbuffer->close_cb(id);
+    }
 }
 
 
@@ -104,7 +137,7 @@ _block_resolve_complete(struct ringbuffer_context* ringbuffer, struct ringbuffer
     uint8_t* tmp = ringbuffer->temp_data;
     size_t real_size = 0;
     while(p) {
-        int cap = p->cap;
+        int cap = p->size;
         memcpy(tmp, p->data, cap);
         tmp += cap;
         real_size += cap;
@@ -113,7 +146,7 @@ _block_resolve_complete(struct ringbuffer_context* ringbuffer, struct ringbuffer
     }
     real_size += sz;
     memcpy(tmp, data, sz);
-    _ringbuffer_trigger_package(record, tmp, real_size);
+    _ringbuffer_trigger_package(ringbuffer, record, tmp, real_size);
     record->head = NULL;
     record->tail = NULL;
     record->cap = 0;
@@ -131,7 +164,7 @@ _record_link_block(struct ringbuffer_record* record, struct ringbuffer_block* bl
     }else {
         record->tail->next = block;
     }
-    record->cap += block->cap;
+    record->cap += block->size;
 }
 
 
@@ -149,14 +182,14 @@ _block_collect(struct ringbuffer_context* ringbuffer, int id, size_t expect_cap)
     while(p<end_block) {
         if(!is_empty_block(p)) {
             // force close timeout socket
-            struct ringbuffer_record* cur_record = imap_query(ringbuffer, p->id);
+            struct ringbuffer_record* cur_record = imap_query(ringbuffer->imap, p->id);
             assert(cur_record);
             // the package is to big
             if(p->id == id) {
                 return false;
             }else {
                 // close timeout socket
-                _ringbuffer_trigger_close(cur_record);
+                _ringbuffer_trigger_close(ringbuffer, cur_record);
             }
         }
 
@@ -187,8 +220,9 @@ _block_resolve_slice(struct ringbuffer_context* ringbuffer, struct ringbuffer_re
     }
 
     // insert new block
-    assert(is_empty_block(p));
     struct ringbuffer_block* cur_p = ringbuffer->cur_block;
+    assert(is_empty_block(cur_p));
+
     ssize_t b_sz = 0 - cur_p->size;
     memcpy(cur_p->data, data, sz);
     cur_p->size = sz;
@@ -199,6 +233,7 @@ _block_resolve_slice(struct ringbuffer_context* ringbuffer, struct ringbuffer_re
     np->size = -(b_sz - sz - BLOCK_HEADER_SIZE);
     np->next = NULL;
     ringbuffer->cur_block = np;
+    assert(block_next(np, -np->size) <= block_end(ringbuffer));
 }
 
 
@@ -222,13 +257,13 @@ _block_new(struct ringbuffer_context* ringbuffer, struct ringbuffer_record* reco
 }
 
 
-static void
-_ringbuffer_add(struct ringbuffer_context* ringbuffer, uint32_t source, int id, uint8_t* data, int sz) {
+void
+ringbuffer_add(struct ringbuffer_context* ringbuffer, int id, uint8_t* data, int sz) {
     struct imap_context* imap = ringbuffer->imap;
     struct ringbuffer_record * record = (struct ringbuffer_record*)imap_query(imap, id);
     // is first add?
     if(record == NULL) {
-        record = _record_new(source);
+        record = _record_new(id);
         imap_set(imap, id, record);
     }
 
@@ -272,14 +307,21 @@ _ringbuffer_add(struct ringbuffer_context* ringbuffer, uint32_t source, int id, 
         if(sz > 0) {
             uint32_t expect_size = record->size;
             int real_size = (sz>=expect_size)?((int)expect_size):(sz);
-            struct ringbuffer_block* nb = _block_new(ringbuffer, record, data, real_size);
+            struct ringbuffer_block* nb = _block_new(ringbuffer, record, id, data, real_size);
             if(!nb) {
                 break;
             }
-            assert(nb->cap == real_size);
+            assert(nb->size == real_size);
             sz -= real_size;
             data += real_size;
         }
     }
 }
 
+
+/*
+int main(int argc, char const *argv[]) {
+    struct ringbuffer_context* ringbuffer = ringbuffer_create();
+    ringbuffer_free(ringbuffer);
+    return 0;
+}*/

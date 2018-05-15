@@ -8,8 +8,8 @@ else ifeq ($(UNAME), Darwin)
 	LDFLAGS:= -llua -lpthread -lm
 endif
 
-# CFLAGS:= -g -Wall -DDEBUG_MEMORY -std=gnu99  -Isrc/
-CFLAGS:= -g -Wall -O2 -Isrc/ -std=gnu99
+CFLAGS:= -g -Wall -DDEBUG_MEMORY -std=gnu99  -Isrc/
+# CFLAGS:= -g -Wall -O2 -Isrc/ -std=gnu99
 
 SOURCE_C := src/hive.c src/hive_actor.c src/hive_memory.c \
 	src/hive_mq.c src/hive_log.c src/socket_mgr.c \
@@ -24,6 +24,9 @@ all: hive
 hive: $(SOURCE_O)
 	$(CC) -o $@ $^ $(LDFLAGS)
 
+
+ringbuffer: src/hive_memory.c src/actor_gate/imap.c src/actor_gate/ringbuffer.c
+	$(CC) -o $@ $(CFLAGS) $^
 
 clean:
 	rm -rf $(SOURCE_O)
