@@ -12,7 +12,6 @@
 
 struct ringbuffer_block {
     ssize_t size;
-    int cap;
     int id;
     struct ringbuffer_block* next;
     uint8_t data[0];
@@ -44,16 +43,17 @@ struct ringbuffer_context {
 
 #define is_empty_block(b)           ((b)->size<0)
 #define BLOCK_HEADER_SIZE           sizeof(struct ringbuffer_block)
+#define BLOCK_MAXSZ                 (RINGBUFFER_MAX_SIZE - BLOCK_HEADER_SIZE) 
 #define block_size(data_size)       (sizeof(struct ringbuffer_block)+(data_size))
 #define block_next(p, data_size)    (struct ringbuffer_block*)(((uint8_t*)(p))+block_size(data_size))
-
-
+#define block_end(ringbuffer)       ((struct ringbuffer_block*)((ringbuffer)->block_data + sizeof((ringbuffer)->block_data)))
+#define block_head(ringbuffer)      ((struct ringbuffer_block*)((ringbuffer)->block_data))
 
 static struct ringbuffer_context *
 _ringbuffer_create() {
     struct ringbuffer_context* ringbuffer = (struct ringbuffer_context*)hive_malloc(sizeof(struct ringbuffer_context));
     ringbuffer->cur_block = (struct ringbuffer_block*)ringbuffer->block_data;
-    ringbuffer->cur_block->size = -(RINGBUFFER_MAX_SIZE - BLOCK_HEADER_SIZE);
+    ringbuffer->cur_block->size = -BLOCK_MAXSZ;
     ringbuffer->cur_block->cap = 0;
     ringbuffer->cur_block->next = NULL;
     ringbuffer->imap = imap_create();
@@ -91,7 +91,6 @@ _ringbuffer_trigger_close(struct ringbuffer_record* record, int id) {
     struct ringbuffer_block* p = record->head;
     while(p) {
         p->size = 0 - p->size;
-        p->cap = 0;
         p = p->next;
     }
     // socket close id
@@ -110,7 +109,6 @@ _block_resolve_complete(struct ringbuffer_context* ringbuffer, struct ringbuffer
         tmp += cap;
         real_size += cap;
         p->size = 0 - p->size;  // mark is empty block
-        p->cap = 0;
         p = p->next;
     }
     real_size += sz;
@@ -137,50 +135,70 @@ _record_link_block(struct ringbuffer_record* record, struct ringbuffer_block* bl
 }
 
 
-static void
-_block_collect(struct ringbuffer_context* ringbuffer, struct ringbuffer_block* block) {
-    struct ringbuffer_block* end_block = ringbuffer->block_data + sizeof(ringbuffer->block_data);
-    assert(is_empty_block(block));
-    struct ringbuffer_block* p = block_next(block, -block->size);
-    while(block<end_block && is_empty_block(p)) {
-        block->size -= block_size(-p->size);
-        p = block_next(p, -p->size);
+static bool
+_block_collect(struct ringbuffer_context* ringbuffer, int id, size_t expect_cap) {
+    size_t collect_sz = 0;
+    struct ringbuffer_block* end_block = block_end(ringbuffer);
+    struct ringbuffer_block* cur_p = ringbuffer->cur_block;
+    struct ringbuffer_block* p = cur_p;
+
+    if(expect_cap >= BLOCK_MAXSZ) {
+        return false;
     }
+
+    while(p<end_block) {
+        if(!is_empty_block(p)) {
+            // force close timeout socket
+            struct ringbuffer_record* cur_record = imap_query(ringbuffer, p->id);
+            assert(cur_record);
+            // the package is to big
+            if(p->id == id) {
+                return false;
+            }else {
+                // close timeout socket
+                _ringbuffer_trigger_close(cur_record);
+            }
+        }
+
+        assert(is_empty_block(p));
+        struct ringbuffer_block* next_p = block_next(p, -p->size);
+        if(p!=cur_p) {
+            ssize_t sz = (ssize_t)block_size(-p->size);
+            cur_p->size -= sz;
+        }
+        collect_sz = -cur_p->size;
+        if(collect_sz>= expect_cap) {
+            return true;
+        }
+        p = next_p;
+    }
+
+    ringbuffer->cur_block = block_head(ringbuffer);
+    return _block_collect(ringbuffer, id, expect_cap);
 }
 
 
 static void
 _block_resolve_slice(struct ringbuffer_context* ringbuffer, struct ringbuffer_record* record, int id, uint8_t* data, int sz) {
+    size_t expect_cap = sz + block_size(8);
+    bool b = _block_collect(ringbuffer, id, expect_cap);
+    if(!b) {
+        return;
+    }
+
+    // insert new block
+    assert(is_empty_block(p));
     struct ringbuffer_block* cur_p = ringbuffer->cur_block;
-
-    if(!is_empty_block(cur_p)) {
-        // force close timeout socket
-        struct ringbuffer_record* cur_record = imap_query(ringbuffer, p->id);
-        assert(cur_record);
-        _ringbuffer_trigger_close(cur_record);
-        // is current socket id ?
-        if(p->id == id) {
-            return;
-        }
-    }
-
-    assert(is_empty_block(cur_p));
     ssize_t b_sz = 0 - cur_p->size;
-    if(sz + block_size(8) <= b_sz) {
-        memcpy(cur_p->data, data, sz);
-        cur_p->size = sz;
-        cur_p->cap = sz;
-        cur_p->next = NULL;
-        cur_p->id = id;
-        _record_link_block(record, cur_p);
-        struct ringbuffer_block* np = block_next(cur_p, sz);
-        np->size = -(b_sz - sz - sizeof(struct ringbuffer_block));
-        np->cap = 0;
-        np->next = NULL;
-        ringbuffer->cur_block = np;
-    } else {
-        _block_collect(ringbuffer, cur_p);
-    }
+    memcpy(cur_p->data, data, sz);
+    cur_p->size = sz;
+    cur_p->next = NULL;
+    cur_p->id = id;
+    _record_link_block(record, cur_p);
+    struct ringbuffer_block* np = block_next(cur_p, sz);
+    np->size = -(b_sz - sz - BLOCK_HEADER_SIZE);
+    np->next = NULL;
+    ringbuffer->cur_block = np;
 }
 
 
