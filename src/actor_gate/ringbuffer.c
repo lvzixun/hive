@@ -23,6 +23,7 @@ struct ringbuffer_block {
 
 
 struct ringbuffer_record {
+    int id;
     uint32_t cap;
     uint32_t size;
     struct {
@@ -39,8 +40,8 @@ struct ringbuffer_context {
     struct ringbuffer_block* cur_block;
     uint8_t block_data[RINGBUFFER_MAX_SIZE];
     uint8_t temp_data[MAX_PKG_SIZE];
-    ringbuffer_triggre_close close_cb;
-    ringbuffer_triggre_package package_cb;
+    ringbuffer_trigger_close close_cb;
+    ringbuffer_trigger_package package_cb;
 };
 
 
@@ -53,6 +54,9 @@ struct ringbuffer_context {
 #define block_next(p, data_size)    (struct ringbuffer_block*)(((uint8_t*)(p))+block_size(data_size))
 #define block_end(ringbuffer)       ((struct ringbuffer_block*)((ringbuffer)->block_data + sizeof((ringbuffer)->block_data)))
 #define block_head(ringbuffer)      ((struct ringbuffer_block*)((ringbuffer)->block_data))
+
+static void _dump_ringbuffer(struct ringbuffer_context * ringbuffer);
+
 
 struct ringbuffer_context *
 ringbuffer_create() {
@@ -78,7 +82,7 @@ ringbuffer_free(struct ringbuffer_context* ringbuffer) {
 
 
 void
-ringbuffer_cb(struct ringbuffer_context* ringbuffer, ringbuffer_triggre_close close_cb, ringbuffer_triggre_package package_cb) {
+ringbuffer_cb(struct ringbuffer_context* ringbuffer, ringbuffer_trigger_close close_cb, ringbuffer_trigger_package package_cb) {
     ringbuffer->close_cb = close_cb;
     ringbuffer->package_cb = package_cb;
 }
@@ -90,7 +94,9 @@ _record_new(int id) {
     record->tail = NULL;
     record->head = NULL;
     record->size = 0;
+    record->id = id;
     record->cap = 0;
+    record->header_state.cap = 0;
     return record;
 }
 
@@ -102,11 +108,8 @@ _record_free(struct ringbuffer_record* p) {
 
 
 static void
-_ringbuffer_trigger_package(struct ringbuffer_context* ringbuffer, struct ringbuffer_record* record, uint8_t* data, size_t sz) {
+_ringbuffer_trigger_package(struct ringbuffer_context* ringbuffer, int id, uint8_t* data, size_t sz) {
     if(ringbuffer->package_cb) {
-        struct ringbuffer_block* p = record->head;
-        assert(p);
-        int id = p->id;    
         ringbuffer->package_cb(id, data, sz);
     }
 }
@@ -133,6 +136,7 @@ _ringbuffer_trigger_close(struct ringbuffer_context* ringbuffer, struct ringbuff
 
 static void
 _block_resolve_complete(struct ringbuffer_context* ringbuffer, struct ringbuffer_record* record, uint8_t* data, int sz) {
+    assert(record->cap + sz == record->size);
     struct ringbuffer_block* p = record->head;
     uint8_t* tmp = ringbuffer->temp_data;
     size_t real_size = 0;
@@ -146,7 +150,7 @@ _block_resolve_complete(struct ringbuffer_context* ringbuffer, struct ringbuffer
     }
     real_size += sz;
     memcpy(tmp, data, sz);
-    _ringbuffer_trigger_package(ringbuffer, record, tmp, real_size);
+    _ringbuffer_trigger_package(ringbuffer, record->id, ringbuffer->temp_data, real_size);
     record->head = NULL;
     record->tail = NULL;
     record->cap = 0;
@@ -157,6 +161,7 @@ _block_resolve_complete(struct ringbuffer_context* ringbuffer, struct ringbuffer
 
 static inline void
 _record_link_block(struct ringbuffer_record* record, struct ringbuffer_block* block) {
+    assert(block->next == NULL);
     if(record->tail == NULL) {
         assert(record->head == NULL);
         record->tail = block;
@@ -182,14 +187,14 @@ _block_collect(struct ringbuffer_context* ringbuffer, int id, size_t expect_cap)
     while(p<end_block) {
         if(!is_empty_block(p)) {
             // force close timeout socket
-            struct ringbuffer_record* cur_record = imap_query(ringbuffer->imap, p->id);
+            int cur_id = p->id;
+            struct ringbuffer_record* cur_record = imap_query(ringbuffer->imap, cur_id);
             assert(cur_record);
+            // close timeout socket
+            _ringbuffer_trigger_close(ringbuffer, cur_record);
             // the package is to big
-            if(p->id == id) {
+            if(cur_id == id) {
                 return false;
-            }else {
-                // close timeout socket
-                _ringbuffer_trigger_close(ringbuffer, cur_record);
             }
         }
 
@@ -211,12 +216,12 @@ _block_collect(struct ringbuffer_context* ringbuffer, int id, size_t expect_cap)
 }
 
 
-static void
+static bool
 _block_resolve_slice(struct ringbuffer_context* ringbuffer, struct ringbuffer_record* record, int id, uint8_t* data, int sz) {
     size_t expect_cap = sz + block_size(8);
     bool b = _block_collect(ringbuffer, id, expect_cap);
     if(!b) {
-        return;
+        return false;
     }
 
     // insert new block
@@ -234,26 +239,26 @@ _block_resolve_slice(struct ringbuffer_context* ringbuffer, struct ringbuffer_re
     np->next = NULL;
     ringbuffer->cur_block = np;
     assert(block_next(np, -np->size) <= block_end(ringbuffer));
+    return true;
 }
 
 
-static struct ringbuffer_block *
-_block_new(struct ringbuffer_context* ringbuffer, struct ringbuffer_record* record, int id, uint8_t* data, int sz) {
+static bool
+_block_resolve(struct ringbuffer_context* ringbuffer, struct ringbuffer_record* record, int id, uint8_t* data, int sz) {
     uint32_t expect_size = record->size;
     uint32_t new_cap = record->cap + sz;
 
     // get complete package
     if(new_cap == expect_size) {
         _block_resolve_complete(ringbuffer, record, data, sz);
-
+        return true;
     } else if (new_cap < expect_size) {
-        _block_resolve_slice(ringbuffer, record, id, data, sz);
+        return _block_resolve_slice(ringbuffer, record, id, data, sz);
 
     } else {
         assert(false);
     }
-
-    return NULL;
+    return false;
 }
 
 
@@ -261,6 +266,7 @@ void
 ringbuffer_add(struct ringbuffer_context* ringbuffer, int id, uint8_t* data, int sz) {
     struct imap_context* imap = ringbuffer->imap;
     struct ringbuffer_record * record = (struct ringbuffer_record*)imap_query(imap, id);
+
     // is first add?
     if(record == NULL) {
         record = _record_new(id);
@@ -298,20 +304,19 @@ ringbuffer_add(struct ringbuffer_context* ringbuffer, int id, uint8_t* data, int
                     v |= b;
                 }
                 record->size = v;
-                record->header_state.cap = 0;
             }
         }
 
         // read data
         assert(sz >= 0);
         if(sz > 0) {
-            uint32_t expect_size = record->size;
+            uint32_t expect_size = record->size - record->cap;
+            assert(expect_size > 0);
             int real_size = (sz>=expect_size)?((int)expect_size):(sz);
-            struct ringbuffer_block* nb = _block_new(ringbuffer, record, id, data, real_size);
-            if(!nb) {
+            bool b = _block_resolve(ringbuffer, record, id, data, real_size);
+            if(!b) {
                 break;
             }
-            assert(nb->size == real_size);
             sz -= real_size;
             data += real_size;
         }
@@ -320,8 +325,76 @@ ringbuffer_add(struct ringbuffer_context* ringbuffer, int id, uint8_t* data, int
 
 
 /*
+static void
+_dump_ringbuffer(struct ringbuffer_context * ringbuffer) {
+    struct ringbuffer_block* head = block_head(ringbuffer);
+    struct ringbuffer_block* end = block_end(ringbuffer);
+    struct ringbuffer_block* cur = ringbuffer->cur_block;
+    int i=0;
+    while(head<end) {
+        char is_cur = (head == cur)?('*'):(' ');
+        printf("[block %d] addr:%p size:%zd id:%d next:%p  %c\n", i, head, head->size, head->id, head->next, is_cur);
+        size_t sz = (head->size < 0) ?((size_t)(-head->size)):((size_t)head->size);
+        head = block_next(head, sz);
+        i++;
+    }
+
+    assert(head == end);
+}
+
+static void
+_trigger_close(int id) {
+    printf("id close!!!\n");
+}
+
+static void
+_trigger_package(int id, uint8_t* data, size_t sz) {
+    size_t i=0;
+    printf("package id:%d sz:%zu data:", id, sz);
+    for(i=0; i<sz; i++) {
+        printf(" %d", data[i]);
+    }
+    printf("\n");
+}
+
+
 int main(int argc, char const *argv[]) {
     struct ringbuffer_context* ringbuffer = ringbuffer_create();
+
+    ringbuffer_cb(ringbuffer, _trigger_close, _trigger_package);
+
+    uint8_t tmp1[] = {0x00, 0x05, 11, 12, 13, 14, 15};
+    ringbuffer_add(ringbuffer, 1, tmp1, sizeof(tmp1));
+
+    uint8_t tmp2[] = {0x00, 0x04, 21, 22, 23, 24, 0x00};
+    ringbuffer_add(ringbuffer, 1, tmp2, sizeof(tmp2));
+
+    uint8_t tmp3[] = {0x02, 31, 32, 0x00, 0x03, 41, 42, 43};
+    ringbuffer_add(ringbuffer, 1, tmp3, sizeof(tmp3));
+
+    uint8_t tmp4[] = {0x00, 0x02, 51, 52, 0x00, 0x03, 61, 62, 63};
+    ringbuffer_add(ringbuffer, 1, tmp4, sizeof(tmp4));
+
+    uint8_t tmp5[] = {0x00, 0x09, 71, 72, 73, 74};
+    ringbuffer_add(ringbuffer, 1, tmp5, sizeof(tmp5));
+
+    uint8_t tmp6[] = {75, 76, 77, 78, 79};
+    ringbuffer_add(ringbuffer, 1, tmp6, sizeof(tmp6));
+
+    uint8_t tmp7[] = {0x00, 0x20, 81, 82, 83, 84, 85, 86};
+    ringbuffer_add(ringbuffer, 1, tmp7, sizeof(tmp7));
+    _dump_ringbuffer(ringbuffer);
+    printf("------------\n");
+
+    uint8_t tmp8[] = {0x00, 0x06, 91, 92, 93, 94, 95};
+    ringbuffer_add(ringbuffer, 2, tmp8, sizeof(tmp8));
+
+    uint8_t tmp9[] = {96};
+    ringbuffer_add(ringbuffer, 2, tmp9, sizeof(tmp9));
+
+    _dump_ringbuffer(ringbuffer);
+
     ringbuffer_free(ringbuffer);
     return 0;
-}*/
+}
+*/

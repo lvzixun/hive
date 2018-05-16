@@ -82,20 +82,32 @@ _imap_rehash(struct imap_context* imap) {
 }
 
 
-void *
-imap_query(struct imap_context* imap, int key) {
+static struct imap_slot *
+_imap_query(struct imap_context* imap, int key) {
     int hash = _imap_hash(imap, key);
     struct imap_slot* p = &(imap->slots[hash]);
     if(p->status != IS_NONE) {
         while(p) {
             if(p->key == key && p->status == IS_EXIST) {
-                return p->value;
+                return p;
             }
             p = p->next;
         }
     }
     return NULL;
 }
+
+
+void *
+imap_query(struct imap_context* imap, int key) {
+    struct imap_slot* p = _imap_query(imap, key);
+    if(p) {
+        return p->value;
+    }
+    return NULL;
+}
+
+
 
 static struct imap_slot *
 _imap_getfree(struct imap_context* imap) {
@@ -152,7 +164,7 @@ imap_set(struct imap_context* imap, int key, void* value) {
 
 void *
 imap_remove(struct imap_context* imap, int key) {
-    struct imap_slot* p = imap_query(imap, key);
+    struct imap_slot* p = _imap_query(imap, key);
     if(p) {
         imap->count--;
         p->status = IS_REMOVE;
