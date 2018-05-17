@@ -54,6 +54,7 @@ void
 servergate_free(struct servergate_context* context) {
     imap_dump(context->imap, (observer)_connect_ob);    
     imap_free(context->imap);
+    hive_free(context);
 }
 
 
