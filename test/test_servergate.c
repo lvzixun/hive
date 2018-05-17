@@ -2,6 +2,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "hive_memory.h"
 #include "actor_gate/servergate.h"
 
 static void
@@ -12,6 +13,7 @@ _msg_cb(int id, uint8_t* data, size_t sz) {
         printf(" %d", data[i]);
     }
     printf("\n");
+    hive_free(data);
 }
 
 int 
@@ -47,6 +49,7 @@ main(int argc, char const *argv[]) {
     servergate_add(context, 2, tmp9, sizeof(tmp9));
 
     servergate_free(context);
+    hive_memroy_dump();
     return 0;
 }
 
