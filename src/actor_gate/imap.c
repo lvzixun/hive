@@ -174,4 +174,13 @@ imap_remove(struct imap_context* imap, int key) {
 }
 
 
-
+void
+imap_dump(struct imap_context* imap, observer observer_cb) {
+    size_t i=0;
+    for(i=0; i<imap->size; i++) {
+        struct imap_slot* v = &imap->slots[i];
+        if(v->status == IS_EXIST) {
+            observer_cb(v->key, v->value);
+        }
+    }
+}

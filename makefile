@@ -25,7 +25,10 @@ hive: $(SOURCE_O)
 	$(CC) -o $@ $^ $(LDFLAGS)
 
 
-ringbuffer: src/hive_memory.c src/actor_gate/imap.c src/actor_gate/ringbuffer.c
+ringbuffer: src/hive_memory.c src/actor_gate/imap.c src/actor_gate/ringbuffer.c test/test_ringbuffer.c
+	$(CC) -o $@ $(CFLAGS) $^
+
+servergate: src/hive_memory.c src/actor_gate/imap.c src/actor_gate/servergate.c test/test_servergate.c
 	$(CC) -o $@ $(CFLAGS) $^
 
 clean:
