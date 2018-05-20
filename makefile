@@ -14,7 +14,8 @@ CFLAGS:= -g -Wall -DDEBUG_MEMORY -std=gnu99  -Isrc/
 SOURCE_C := src/hive.c src/hive_actor.c src/hive_memory.c \
 	src/hive_mq.c src/hive_log.c src/socket_mgr.c \
 	src/hive_bootstrap.c src/actor_log.c \
-	src/lhive_buffer.c  src/hive_timer.c src/lhive_pack.c
+	src/lhive_buffer.c  src/hive_timer.c src/lhive_pack.c \
+	src/actor_gate/imap.c src/actor_gate/servergate.c src/actor_gate/actor_gate.c
 
 SOURCE_O := $(SOURCE_C:.c=.o)
 

@@ -13,6 +13,7 @@
 
 #include "lhive_buffer.h"
 #include "lhive_pack.h"
+#include "actor_gate/actor_gate.h"
 
 
 struct actor_state {
@@ -440,6 +441,9 @@ _register_lib(lua_State* L) {
 
     // register pack lib
     reg_lua_lib(L, lhive_luaopen_pack, "pack.c");
+
+    // register servergate lib
+    reg_lua_lib(L, lhive_luaopen_gate, "servergate.c");
 }
 
 
