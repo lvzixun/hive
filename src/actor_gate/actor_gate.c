@@ -30,14 +30,16 @@ enum gate_control_type {
     GCT_ERROR_RESPONSE,
 };
 
+struct bind_info {
+    char ip[NI_MAXSERV];
+    int port;
+};
+
 
 struct gate_msg {
     enum gate_control_type gct;
     union {
-        struct {
-            char ip[NI_MAXHOST];
-            int port;
-        } bind;
+        uint8_t bind_data[0];
 
         struct {
             int id;
@@ -116,14 +118,15 @@ _gate_on_create() {
 
 static void
 _gate_on_control(uint32_t source, int session, void* data, size_t sz) {
-    assert(sz == sizeof(struct gate_msg));
+    assert(sz >= sizeof(struct gate_msg));
     struct gate_msg* msg = (struct gate_msg*)data;
     struct gate_msg response;
     switch(msg->gct) {
         case GCT_BIND: {
             int ret = -100;  // is also bind
+            struct bind_info* bind = (struct bind_info*)msg->content.bind_data;
             if(_ENV_GATE.opaque_handle == 0) {
-                int listen_id = hive_socket_listen(msg->content.bind.ip, msg->content.bind.port, _ENV_GATE.actor_handle);
+                int listen_id = hive_socket_listen(bind->ip, bind->port, _ENV_GATE.actor_handle);
                 if(listen_id >= 0) {
                     _ENV_GATE.opaque_handle = source;
                     _ENV_GATE.listen_id = listen_id;
@@ -224,15 +227,19 @@ actor_gate_init() {
 
 static int
 actor_gate_bind(uint32_t source, const char* ip, size_t sz, uint16_t port) {
-    struct gate_msg msg = {0};
-    if(sz >= sizeof(msg.content.bind.ip)) {
+    struct bind_info info;
+    if(sz >= sizeof(info.ip)) {
         return -101;
     }
 
-    msg.gct = GCT_BIND;
-    msg.content.bind.port = port;
-    memcpy(msg.content.bind.ip, ip, sz);
-    hive_send(source, _ENV_GATE.actor_handle, HIVE_TNORMAL, 0, &msg, sizeof(msg));
+    memset(&info, 0, sizeof(info));
+    uint8_t buffer[sizeof(struct gate_msg) + sizeof(struct bind_info)] = {0};
+    struct gate_msg* msg = (struct gate_msg*)buffer;
+    msg->gct = GCT_BIND;
+    info.port = port;
+    memcpy(info.ip, ip, sz);
+    memcpy(msg->content.bind_data, (uint8_t*)&info, sizeof(info));
+    hive_send(source, _ENV_GATE.actor_handle, HIVE_TNORMAL, 0, buffer, sizeof(buffer));
     return 0;
 }
 
