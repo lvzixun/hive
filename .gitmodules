@@ -1,0 +1,3 @@
+[submodule "examples/sproto_agent/sproto"]
+	path = examples/sproto_agent/sproto
+	url = https://github.com/cloudwu/sproto.git
