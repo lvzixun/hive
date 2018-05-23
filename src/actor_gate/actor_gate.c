@@ -212,21 +212,24 @@ _actor_gate_dispatch(uint32_t source, uint32_t self, int type, int session, void
 }
 
 
-static bool 
+static void 
 actor_gate_init() {
     if(_ENV_GATE.context) {
-        return false;
+        return;
     }
     _ENV_GATE.context = servergate_create();
     _ENV_GATE.actor_handle = hive_register("server_gate", _actor_gate_dispatch, NULL, NULL, 0);
     _ENV_GATE.opaque_handle = 0;
     _ENV_GATE.listen_id = -1;
-    return true;
 }
 
 
 static int
 actor_gate_bind(uint32_t source, const char* ip, size_t sz, uint16_t port) {
+    if(_ENV_GATE.listen_id >= 0) {
+        return -102;
+    }
+
     struct bind_info info;
     if(sz >= sizeof(info.ip)) {
         return -101;
@@ -280,6 +283,24 @@ _lmsg_type(lua_State* L) {
     const struct gate_msg* msg = (const struct gate_msg*)lua_tostring(L, 1);
     lua_pushinteger(L, msg->gct);
     return 1;
+}
+
+
+static int
+_lmsg_send(lua_State* L) {
+    int client_id = lua_tointeger(L, 1);
+    uint8_t head[2] = {0};
+    size_t sz = 0;
+    const uint8_t* s = (const uint8_t*)lua_tolstring(L, 2, &sz);
+    if(sz > 0xffff) {
+        luaL_error(L, "msg package is to big:%lu", sz);
+    }
+    head[1] = sz & 0xff;
+    head[0] = (sz >> 8) & 0xff;
+
+    hive_socket_send(client_id, head, 2);
+    hive_socket_send(client_id, s, sz);
+    return 0;
 }
 
 
@@ -342,19 +363,11 @@ _lmsg_error(lua_State* L) {
 
 
 int
-lhive_luaopen_gate(lua_State* L) {
-    if(actor_gate_init() == false) {
-        luaL_error(L, "servergate init error!");
-    }
-
+lhive_luaopen_gatemsg(lua_State* L) {
     luaL_checkversion(L);
     luaL_Reg l[] = {
-        // control api
-        {"start", _lgate_start},
-        {"close", _lgate_close},
-
-        // message api
         {"msg_type", _lmsg_type},
+        {"msg_send", _lmsg_send},
         {"msg_package", _lmsg_package},
         {"msg_bindret", _lmsg_bindret},
         {"msg_accept", _lmsg_accept},
@@ -366,13 +379,29 @@ lhive_luaopen_gate(lua_State* L) {
 
     luaL_newlib(L, l);
 
-    set_const(L, "GATE_HANDLE", _ENV_GATE.actor_handle);
     set_const(L, "MT_PACKAGE", GCT_PACKAGE_RESPONSE);
     set_const(L, "MT_BINDRET", GCT_BIND_RESPONSE);
     set_const(L, "MT_ACCEPT", GCT_ACCEPT_RESPONSE);
     set_const(L, "MT_BREAK", GCT_BREAK_RESPONSE);
     set_const(L, "MT_ERROR", GCT_ERROR_RESPONSE);
+    return 1;
+}
 
+
+int
+lhive_luaopen_gate(lua_State* L) {
+    luaL_checkversion(L);
+    luaL_Reg l[] = {
+        // control api
+        {"start", _lgate_start},
+        {"close", _lgate_close},
+        {NULL, NULL},
+    };
+
+    actor_gate_init();
+    luaL_newlib(L, l);
+
+    set_const(L, "GATE_HANDLE", _ENV_GATE.actor_handle);
     return 1;
 }
 

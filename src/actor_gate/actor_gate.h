@@ -7,5 +7,6 @@
 #include <lualib.h>
 
 int lhive_luaopen_gate(lua_State* L);
+int lhive_luaopen_gatemsg(lua_State* L);
 
 #endif

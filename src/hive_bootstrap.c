@@ -444,6 +444,9 @@ _register_lib(lua_State* L) {
 
     // register servergate lib
     reg_lua_lib(L, lhive_luaopen_gate, "servergate.c");
+
+    // register server gatemsg lib
+    reg_lua_lib(L, lhive_luaopen_gatemsg, "servergate_msg.c");
 }
 
 
