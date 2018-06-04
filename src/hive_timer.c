@@ -222,6 +222,7 @@ _timer_update(struct timer_state* state) {
     spinlock_lock(&state->lock);
     _hive_timer_exec(state);
     _hive_timer_shift(state);
+    _hive_timer_exec(state);
     spinlock_unlock(&state->lock);
 }
 
