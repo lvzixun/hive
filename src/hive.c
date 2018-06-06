@@ -68,7 +68,7 @@ _thread_timer(void* p) {
     unused(p);
     for(;;) {
         hive_timer_update(ENV.tm_state);
-        usleep(10000); // 10 ms update
+        usleep(2500); // 2.5 ms update
         if(ENV.exit) {
             break;
         }
