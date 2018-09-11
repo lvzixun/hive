@@ -131,7 +131,7 @@ imap_set(struct imap_context* imap, int key, void* value) {
         struct imap_slot* np = p;
         while(np) {
             if(np->key == key && np->status == IS_EXIST) {
-                p->value = value;
+                np->value = value;
                 return;
             }
             np = np->next;
@@ -152,6 +152,7 @@ imap_set(struct imap_context* imap, int key, void* value) {
         }else {
             np->key = p->key;
             np->value = p->value;
+            np->status = IS_EXIST;
         }
     }
 
