@@ -963,7 +963,11 @@ int
 socket_mgr_update(struct socket_mgr_state* state) {
     int n = sp_wait(state->pfd, state->sp_event, MAX_SP_EVENT);
     if(n <= 0) {
-        hive_panic("socket_mgr update sp_wait error:%d\n", n);
+        int err = errno;
+        if(err == EINTR) {
+            return 0;
+        }
+        hive_panic("socket_mgr update sp_wait error:%d errno:%d\n", n, err);
     }
 
     /* // for teset kqueue and epoll
